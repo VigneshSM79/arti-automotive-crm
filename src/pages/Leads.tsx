@@ -293,6 +293,8 @@ const Leads = () => {
       const leadData = {
         ...data,
         user_id: user?.id,
+        owner_id: user?.id, // Manually created leads go directly to creator's pipeline
+        pipeline_stage_id: data.pipeline_stage_id, // Fix: Include pipeline stage
         tags: data.tags || [],
         email: data.email || null,
         address: data.address || null,
@@ -505,6 +507,7 @@ const Leads = () => {
           zip: result.data.zip || null,
           notes: result.data.notes || null,
           user_id: user?.id,
+          owner_id: null, // CSV uploads go to Lead Pool for AI qualification
           lead_source: 'csv_upload',
           status: 'new',
           pipeline_stage_id: pipelineStages[0]?.id || null,
