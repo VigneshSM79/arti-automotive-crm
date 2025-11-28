@@ -1,0 +1,11 @@
+first_name,last_name,phone,email,address,city,state,zip,notes
+ValidUser,TestOne,+16045551111,valid1@test.com,123 Test St,Vancouver,BC,V6B 1A1,This is valid
+,MissingFirst,+16045552222,test2@example.com,456 Test Ave,Surrey,BC,V3T 2B2,Missing first name - should fail
+InvalidLast,,+16045553333,test3@example.com,789 Test Rd,Burnaby,BC,V5H 3C3,Missing last name - should fail
+NoPhone,User,,,321 Test Ln,Richmond,BC,V7C 4D4,Missing phone - should fail
+BadPhone,Format,123,badphone@test.com,654 Test Dr,Coquitlam,BC,V3J 5E5,Invalid phone format - should fail
+DupePhone,One,+16045554444,dupe1@test.com,987 Test Way,Delta,BC,V4C 9I9,First duplicate
+DupePhone,Two,+16045554444,dupe2@test.com,147 Test Ct,Langley,BC,V2Y 0J0,Second duplicate - should warn
+ValidUser,TestTwo,+16045555555,valid2@test.com,258 Test Blvd,Port Coquitlam,BC,V3C 8H8,This is valid
+BadEmail,User,+16045556666,notanemail,369 Test Pl,New Westminster,BC,V3L 6F6,Invalid email - should warn
+ValidUser,TestThree,6047778888,valid3@test.com,753 Test Ave,North Vancouver,BC,V7M 7G7,Valid with 10-digit phone

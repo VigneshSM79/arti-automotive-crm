@@ -1,0 +1,11 @@
+first_name,last_name,phone,email,address,city,state,zip,notes
+John,Smith,+16045551234,john.smith@example.com,123 Main St,Vancouver,BC,V6B 1A1,Interested in sedan
+Sarah,Johnson,+17785552345,sarah.j@gmail.com,456 Oak Ave,Surrey,BC,V3T 2B2,Looking for SUV
+Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3,Trade-in available
+Emily,Brown,+16045555555,,321 Elm Street,Richmond,BC,V7C 4D4,Urgent - needs car this week
+David,Jones,+17786667777,david.jones@company.com,654 Maple Dr,Coquitlam,BC,V3J 5E5,Prefers electric vehicles
+Jennifer,Garcia,6049998888,jen.garcia@email.com,987 Cedar Ln,New Westminster,BC,V3L 6F6,Budget: $30k-40k
+Robert,Martinez,+16041112222,robert.m@test.com,147 Birch Ave,North Vancouver,BC,V7M 7G7,Returning customer
+Lisa,Rodriguez,7783334444,lisa.rodriguez@mail.com,258 Spruce St,Port Coquitlam,BC,V3C 8H8,Looking for financing options
+James,Wilson,+16045556666,james.wilson@example.org,369 Willow Ct,Delta,BC,V4C 9I9,Referred by friend
+Maria,Anderson,+17787778888,maria.a@domain.com,753 Aspen Way,Langley,BC,V2Y 0J0,Interested in lease
