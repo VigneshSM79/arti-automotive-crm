@@ -246,6 +246,47 @@ const Leads = () => {
 
   const totalPages = Math.ceil((leadsData?.total || 0) / LEADS_PER_PAGE);
 
+  // Helper function to trigger webhook for campaign tags
+  const triggerCampaignWebhook = async (leadId: string, leadData: any, tag: string) => {
+    const n8nWebhookUrl = import.meta.env.VITE_N8N_INITIAL_MESSAGE_WEBHOOK;
+    const webhookToken = import.meta.env.VITE_N8N_WEBHOOK_TOKEN;
+
+    if (!n8nWebhookUrl || !webhookToken) {
+      console.warn('n8n webhook not configured');
+      return false;
+    }
+
+    try {
+      const response = await fetch(n8nWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Token': webhookToken,
+        },
+        body: JSON.stringify({
+          source: 'tag_added',
+          lead_id: leadId,
+          first_name: leadData.first_name,
+          last_name: leadData.last_name,
+          phone: leadData.phone,
+          tag: tag,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (response.ok) {
+        console.log(`Webhook triggered for tag: ${tag}`);
+        return true;
+      } else {
+        console.error(`Webhook failed for tag ${tag}:`, response.status, await response.text());
+        return false;
+      }
+    } catch (error) {
+      console.error(`Webhook network error for tag ${tag}:`, error);
+      return false;
+    }
+  };
+
   // Create/Update lead mutation
   const leadMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -263,6 +304,10 @@ const Leads = () => {
         status: 'new',
       };
 
+      let leadId: string;
+      const oldTags = editingLead?.tags || [];
+      const newTags = leadData.tags || [];
+
       if (editingLead) {
         const { error } = await supabase
           .from('leads')
@@ -270,17 +315,58 @@ const Leads = () => {
           .eq('id', editingLead.id);
 
         if (error) throw error;
+        leadId = editingLead.id;
       } else {
-        const { error } = await supabase
+        const { data: insertedData, error } = await supabase
           .from('leads')
-          .insert([leadData]);
+          .insert([leadData])
+          .select('id')
+          .single();
 
         if (error) throw error;
+        leadId = insertedData.id;
       }
+
+      // Return data needed for onSuccess
+      return { leadId, leadData, oldTags, newTags };
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
+      const { leadId, leadData, oldTags, newTags } = result;
+
+      // Detect newly added tags
+      const addedTags = newTags.filter((tag: string) => !oldTags.includes(tag));
+
+      if (addedTags.length > 0) {
+        // Fetch tag_campaigns to check which tags should trigger webhook
+        const { data: campaigns } = await supabase
+          .from('tag_campaigns')
+          .select('tag')
+          .in('tag', addedTags);
+
+        const campaignTags = campaigns?.map(c => c.tag) || [];
+
+        // Filter out 'Initial_Message' (manual only)
+        const triggeredTags = campaignTags.filter(tag => tag !== 'Initial_Message');
+
+        // Trigger webhook for each qualifying tag
+        let webhooksTriggered = 0;
+        for (const tag of triggeredTags) {
+          const success = await triggerCampaignWebhook(leadId, leadData, tag);
+          if (success) webhooksTriggered++;
+        }
+
+        if (webhooksTriggered > 0) {
+          toast.success(
+            `${editingLead ? 'Lead updated' : 'Lead created'}! Triggering ${webhooksTriggered} campaign${webhooksTriggered > 1 ? 's' : ''}...`
+          );
+        } else {
+          toast.success(editingLead ? 'Lead updated successfully' : 'Lead created successfully');
+        }
+      } else {
+        toast.success(editingLead ? 'Lead updated successfully' : 'Lead created successfully');
+      }
+
       queryClient.invalidateQueries({ queryKey: ['leads'] });
-      toast.success(editingLead ? 'Lead updated successfully' : 'Lead created successfully');
       handleCloseDialog();
     },
     onError: (error) => {
