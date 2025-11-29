@@ -302,7 +302,7 @@ const Leads = () => {
       const leadData = {
         ...data,
         user_id: user?.id,
-        owner_id: user?.id, // Manually created leads go directly to creator's pipeline
+        owner_id: null, // All leads start unassigned in "New Contact" stage
         pipeline_stage_id: data.pipeline_stage_id, // Fix: Include pipeline stage
         tags: data.tags || [],
         email: data.email || null,

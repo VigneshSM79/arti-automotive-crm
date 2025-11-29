@@ -87,18 +87,19 @@ export default function Pipeline() {
             name,
             color
           )
-        `)
-        .not('owner_id', 'is', null); // Only get assigned leads (not pooled)
+        `);
 
       // Role-based filtering
       if (userRole?.isAdmin) {
-        // Admin: Filter by selected salesperson or show all
+        // Admin: Filter by selected salesperson or show all assigned + unassigned
         if (selectedSalesperson && selectedSalesperson !== 'all') {
-          query = query.eq('owner_id', selectedSalesperson);
+          // Show unassigned leads OR leads owned by selected salesperson
+          query = query.or(`owner_id.is.null,owner_id.eq.${selectedSalesperson}`);
         }
+        // If 'all', show all leads (assigned + unassigned) - no filter needed
       } else {
-        // Regular agent: Only show their own leads
-        query = query.eq('owner_id', user.id);
+        // Regular agent: Show unassigned leads OR their own assigned leads
+        query = query.or(`owner_id.is.null,owner_id.eq.${user.id}`);
       }
 
       query = query.order('created_at', { ascending: false });

@@ -115,24 +115,44 @@ serve(async (req) => {
     }
 
     // 3. Set user role
-    const { error: roleError } = await supabaseAdmin
-      .from('user_roles')
-      .insert({
-        user_id: userId,
-        role: requestData.role,
-      });
+    // Note: The database trigger already creates a 'user' role
+    // We need to handle the case where the role already exists OR we want a different role
 
-    if (roleError) {
-      console.error('Role assignment error:', roleError);
-      // Attempt to clean up if role assignment fails
-      await supabaseAdmin.auth.admin.deleteUser(userId);
-      return new Response(
-        JSON.stringify({ error: `Failed to assign role: ${roleError.message}` }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
+    // If requesting 'user' role, it's already created by the trigger - skip
+    if (requestData.role === 'user') {
+      console.log('User role already created by database trigger, skipping...');
+    } else {
+      // For non-user roles (e.g., 'admin'), we need to either:
+      // 1. Update existing user_roles entry, or
+      // 2. Delete 'user' role and insert 'admin' role
+
+      // Delete default 'user' role created by trigger
+      await supabaseAdmin
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId)
+        .eq('role', 'user');
+
+      // Insert the requested role (admin, etc.)
+      const { error: roleError } = await supabaseAdmin
+        .from('user_roles')
+        .insert({
+          user_id: userId,
+          role: requestData.role,
+        });
+
+      if (roleError) {
+        console.error('Role assignment error:', roleError);
+        // Attempt to clean up if role assignment fails
+        await supabaseAdmin.auth.admin.deleteUser(userId);
+        return new Response(
+          JSON.stringify({ error: `Failed to assign role: ${roleError.message}` }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
     }
 
     // 4. Send welcome email (optional - Supabase sends confirmation by default)
@@ -157,8 +177,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Unexpected error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: errorMessage }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

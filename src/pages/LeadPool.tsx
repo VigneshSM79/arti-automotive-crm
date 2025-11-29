@@ -44,13 +44,13 @@ export default function LeadPool() {
             name,
             color
           ),
-          campaign_enrollments!inner (
+          conversations!inner (
             id,
-            status
+            requires_human_handoff
           )
         `)
         .is('owner_id', null) // Only get unassigned leads
-        .eq('campaign_enrollments.status', 'qualified') // Only get AI-qualified leads
+        .eq('conversations.requires_human_handoff', true) // Only get AI-qualified leads needing handoff
         .order('created_at', { ascending: false });
 
       const { data, error } = await query;
