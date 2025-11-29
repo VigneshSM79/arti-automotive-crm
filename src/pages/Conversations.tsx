@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Search, Send, Bot, AlertCircle, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function Conversations() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -139,22 +140,30 @@ export default function Conversations() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Real-time subscription
-  useEffect(() => {
-    if (!selectedConversationId) return;
+  // Real-time subscriptions
+  // 1. Global messages (for unread counts and new messages in active chat)
+  useRealtimeSubscription({
+    table: 'messages',
+    event: 'INSERT',
+    queryKey: ['messages', selectedConversationId], // This will also trigger for other conversations if we invalidate 'conversations'
+  });
 
+  // 2. Conversation updates (status, handoff, unread counts)
+  useRealtimeSubscription({
+    table: 'conversations',
+    event: 'UPDATE',
+    queryKey: ['conversations'],
+  });
+
+  // Also invalidate conversations when new messages arrive
+  useEffect(() => {
     const channel = supabase
-      .channel(`conversation-${selectedConversationId}`)
+      .channel('global-messages')
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${selectedConversationId}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages' },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['messages', selectedConversationId] });
+          queryClient.invalidateQueries({ queryKey: ['conversations'] });
         }
       )
       .subscribe();
@@ -162,7 +171,7 @@ export default function Conversations() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedConversationId, queryClient]);
+  }, [queryClient]);
 
   const handleSend = () => {
     if (!messageText.trim() || messageText.length > 160) return;
@@ -356,7 +365,7 @@ export default function Conversations() {
                           </span>
                           {message.is_ai_generated && (
                             <Badge variant="outline" className="text-[10px] h-4 px-1 py-0 border-primary/20 text-primary">
-                              AI
+                              <Bot className="h-3 w-3" />
                             </Badge>
                           )}
                         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Trash2, Lock } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CAMPAIGN_TEMPLATES } from "@/data/campaignTemplates";
 
 export default function TagTemplates() {
   const { data: userRole } = useUserRole();
@@ -40,6 +49,31 @@ export default function TagTemplates() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Real-time subscriptions for tag campaigns and messages
+  useRealtimeSubscription({
+    table: 'tag_campaigns',
+    event: '*',
+    queryKey: ['tag-campaigns'],
+  });
+
+  useRealtimeSubscription({
+    table: 'tag_campaigns',
+    event: '*',
+    queryKey: ['initial-message-campaign'],
+  });
+
+  useRealtimeSubscription({
+    table: 'tag_campaign_messages',
+    event: '*',
+    queryKey: ['tag-campaigns'],
+  });
+
+  useRealtimeSubscription({
+    table: 'tag_campaign_messages',
+    event: '*',
+    queryKey: ['initial-message-campaign'],
+  });
 
   // Fetch Initial_Message campaign separately
   const { data: initialMessageCampaign, isLoading: isLoadingInitial } = useQuery({
@@ -101,13 +135,13 @@ export default function TagTemplates() {
     mutationFn: async (campaignId: string) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      
+
       const { error } = await supabase
         .from('tag_campaigns')
         .delete()
         .eq('id', campaignId)
         .eq('user_id', user.id);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -387,6 +421,24 @@ export default function TagTemplates() {
     createCampaignMutation.mutate();
   };
 
+  const handleTemplateSelect = (templateName: string) => {
+    const template = CAMPAIGN_TEMPLATES.find(t => t.name === templateName);
+    if (template) {
+      setTagName(template.name);
+      setTagIdentifier(template.identifier);
+
+      const msgCount = template.messages.length.toString();
+      setMessageCount(msgCount);
+
+      // Update messages
+      const newMessages = template.messages.map(msg => ({
+        day: msg.day,
+        content: msg.content
+      }));
+      setMessages(newMessages);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in">
       <div>
@@ -497,43 +549,43 @@ export default function TagTemplates() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {campaigns?.map((campaign: any) => (
-            <Card key={campaign.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="text-base">{campaign.name}</CardTitle>
-                    <Badge variant="secondary">{campaign.tag}</Badge>
-                  </div>
-                  {campaign.user_id !== null && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteCampaignMutation.mutate(campaign.id)}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {campaign.tag_campaign_messages
-                  ?.sort((a: any, b: any) => a.sequence_order - b.sequence_order)
-                  .map((message: any) => (
-                    <div key={message.id} className="text-sm">
-                      <p className="font-medium text-xs text-muted-foreground mb-1">
-                        Day {message.day_number}
-                      </p>
-                      <p className="text-sm bg-muted p-2 rounded">
-                        {message.message_template}
-                      </p>
+              <Card key={campaign.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <CardTitle className="text-base">{campaign.name}</CardTitle>
+                      <Badge variant="secondary">{campaign.tag}</Badge>
                     </div>
-                  ))}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                    {campaign.user_id !== null && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteCampaignMutation.mutate(campaign.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {campaign.tag_campaign_messages
+                    ?.sort((a: any, b: any) => a.sequence_order - b.sequence_order)
+                    .map((message: any) => (
+                      <div key={message.id} className="text-sm">
+                        <p className="font-medium text-xs text-muted-foreground mb-1">
+                          Day {message.day_number}
+                        </p>
+                        <p className="text-sm bg-muted p-2 rounded">
+                          {message.message_template}
+                        </p>
+                      </div>
+                    ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Create Campaign Modal */}
@@ -547,6 +599,21 @@ export default function TagTemplates() {
 
           {step === 1 ? (
             <div className="space-y-4">
+              <div>
+                <Label>Load Template (Optional)</Label>
+                <Select onValueChange={handleTemplateSelect}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select a template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CAMPAIGN_TEMPLATES.map((template) => (
+                      <SelectItem key={template.name} value={template.name}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div>
                 <Label>Tag Name</Label>
                 <Input
@@ -639,9 +706,8 @@ export default function TagTemplates() {
                       </Button>
                     </div>
                     <p
-                      className={`text-xs ${
-                        message.content.length > 144 ? 'text-warning' : 'text-muted-foreground'
-                      }`}
+                      className={`text-xs ${message.content.length > 144 ? 'text-warning' : 'text-muted-foreground'
+                        }`}
                     >
                       {message.content.length}/160
                     </p>
@@ -763,13 +829,12 @@ export default function TagTemplates() {
                     </Button>
                   </div>
                   <p
-                    className={`text-xs ${
-                      message.content.length > 144
+                    className={`text-xs ${message.content.length > 144
                         ? 'text-orange-600 font-semibold'
                         : message.content.length > 120
-                        ? 'text-yellow-600'
-                        : 'text-muted-foreground'
-                    }`}
+                          ? 'text-yellow-600'
+                          : 'text-muted-foreground'
+                      }`}
                   >
                     {message.content.length}/160
                   </p>

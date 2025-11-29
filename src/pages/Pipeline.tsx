@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Search, Phone, Mail, MessageSquare } from 'lucide-react';
 import { DndContext, DragEndEvent, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function Pipeline() {
   const [search, setSearch] = useState('');
@@ -26,6 +27,13 @@ export default function Pipeline() {
   const { user } = useAuth();
   const { data: userRole } = useUserRole();
 
+  // Subscribe to real-time updates for leads (stage changes)
+  useRealtimeSubscription({
+    table: 'leads',
+    event: 'UPDATE',
+    queryKey: ['leads'],
+  });
+
   const { data: stages, isLoading: loadingStages } = useQuery({
     queryKey: ['pipeline-stages'],
     queryFn: async () => {
@@ -33,7 +41,7 @@ export default function Pipeline() {
         .from('pipeline_stages')
         .select('*')
         .order('order_position', { ascending: true });
-      
+
       if (error) throw error;
       return data;
     },
@@ -110,7 +118,7 @@ export default function Pipeline() {
         .eq('id', leadId)
         .select()
         .single();
-      
+
       if (error) throw error;
       return data;
     },
@@ -222,7 +230,7 @@ export default function Pipeline() {
                   <Card className="h-full">
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center justify-between text-base">
-                        <div 
+                        <div
                           className="px-3 py-1 rounded-full text-white text-sm font-medium"
                           style={{ backgroundColor: stage.color }}
                         >
@@ -253,9 +261,9 @@ export default function Pipeline() {
                           {lead.tags && lead.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {lead.tags.map((tag: string, idx: number) => (
-                            <Badge key={idx} variant="outline" className="text-xs bg-white border-slate-400 text-slate-700 hover:border-slate-500 hover:shadow-sm transition-all cursor-pointer">
-                              {tag}
-                            </Badge>
+                                <Badge key={idx} variant="outline" className="text-xs bg-white border-slate-400 text-slate-700 hover:border-slate-500 hover:shadow-sm transition-all cursor-pointer">
+                                  {tag}
+                                </Badge>
                               ))}
                             </div>
                           )}
@@ -305,7 +313,7 @@ export default function Pipeline() {
                   <p className="text-sm mt-1">{selectedLead.pipeline_stages?.name}</p>
                 </div>
               </div>
-              
+
               {selectedLead.tags && selectedLead.tags.length > 0 && (
                 <div>
                   <Label>Tags</Label>

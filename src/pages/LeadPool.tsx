@@ -7,11 +7,20 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Search } from 'lucide-react';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function LeadPool() {
   const [search, setSearch] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Subscribe to real-time updates for leads
+  useRealtimeSubscription({
+    table: 'leads',
+    event: 'UPDATE',
+    filter: 'owner_id=neq.null', // Listen for when a lead gets claimed (owner_id changes from null)
+    queryKey: ['pooled-leads'],
+  });
 
   const { data: leads, isLoading: loadingLeads } = useQuery({
     queryKey: ['pooled-leads', search],

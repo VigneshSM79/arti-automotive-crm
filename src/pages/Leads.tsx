@@ -124,12 +124,21 @@ type ValidationResult = {
   isValid: boolean;
 };
 
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+
 const Leads = () => {
   const { user } = useAuth();
   const { data: roleData } = useUserRole();
   const isAdmin = roleData?.isAdmin || false;
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Subscribe to real-time updates for leads (new leads and tag changes)
+  useRealtimeSubscription({
+    table: 'leads',
+    event: '*', // Listen for INSERT, UPDATE, DELETE
+    queryKey: ['leads'],
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
