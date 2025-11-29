@@ -299,12 +299,19 @@ const Leads = () => {
   // Create/Update lead mutation
   const leadMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      let leadId: string;
+      const oldTags = editingLead?.tags || [];
+      const newTags = data.tags || [];
+
+      // Determine if Initial_Message tag is being added
+      const addingInitialMessage = newTags.includes('Initial_Message') && !oldTags.includes('Initial_Message');
+
       const leadData = {
         ...data,
         user_id: user?.id,
         owner_id: null, // All leads start unassigned in "New Contact" stage
         pipeline_stage_id: data.pipeline_stage_id, // Fix: Include pipeline stage
-        tags: data.tags || [],
+        tags: newTags,
         email: data.email || null,
         address: data.address || null,
         city: data.city || null,
@@ -312,12 +319,14 @@ const Leads = () => {
         zip: data.zip || null,
         notes: data.notes || null,
         lead_source: 'manual_entry',
-        status: 'new',
+        // Only set status to 'contacted' if:
+        // 1. Creating new lead WITH 'Initial_Message' tag, OR
+        // 2. Editing existing lead and ADDING 'Initial_Message' tag
+        // Otherwise, preserve existing status (for edits) or set to 'new' (for creates)
+        status: addingInitialMessage || (!editingLead && newTags.includes('Initial_Message'))
+          ? 'contacted'
+          : (editingLead?.status || 'new'),
       };
-
-      let leadId: string;
-      const oldTags = editingLead?.tags || [];
-      const newTags = leadData.tags || [];
 
       if (editingLead) {
         const { error } = await supabase
@@ -356,8 +365,8 @@ const Leads = () => {
 
         const campaignTags = campaigns?.map(c => c.tag) || [];
 
-        // Filter out 'Initial_Message' (manual only)
-        const triggeredTags = campaignTags.filter(tag => tag !== 'Initial_Message');
+        // Trigger webhook for all campaign tags (including 'Initial_Message')
+        const triggeredTags = campaignTags;
 
         // Trigger webhook for each qualifying tag
         let webhooksTriggered = 0;
