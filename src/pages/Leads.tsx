@@ -60,6 +60,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import Papa from 'papaparse';
+import { checkDuplicatePhone, normalizePhoneNumber as normalizePhone, validatePhoneNumber, ExistingLead } from '@/lib/duplicatePhoneCheck';
+import { DuplicateContactDialog } from '@/components/leads/DuplicateContactDialog';
 
 const LEADS_PER_PAGE = 25;
 
@@ -157,6 +159,11 @@ const Leads = () => {
   const [csvImportStep, setCsvImportStep] = useState(1);
   const [importBatchName, setImportBatchName] = useState('');
   const [isProcessingCsv, setIsProcessingCsv] = useState(false);
+
+  // Duplicate phone detection state
+  const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
+  const [duplicateLead, setDuplicateLead] = useState<ExistingLead | null>(null);
+  const [phoneError, setPhoneError] = useState('');
 
   // Load column visibility from localStorage or default to showing email, status, and tags
   const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
@@ -279,6 +286,7 @@ const Leads = () => {
           last_name: leadData.last_name,
           phone: leadData.phone,
           tag: tag,
+          tags: leadData.tags || [], // Include all tags array
           timestamp: new Date().toISOString(),
         }),
       });
@@ -457,6 +465,7 @@ const Leads = () => {
                 first_name: lead.first_name,
                 last_name: lead.last_name,
                 phone: lead.phone,
+                tags: [...existingTags, 'Initial_Message'], // Include updated tags with Initial_Message
                 timestamp: new Date().toISOString(),
               }),
             });
@@ -509,7 +518,7 @@ const Leads = () => {
     },
   });
 
-  // Bulk CSV import mutation
+  // Bulk CSV import mutation with duplicate handling
   const bulkImportMutation = useMutation({
     mutationFn: async (validatedLeads: ValidationResult[]) => {
       const leadsToInsert = validatedLeads
@@ -517,7 +526,7 @@ const Leads = () => {
         .map(result => ({
           first_name: result.data.first_name,
           last_name: result.data.last_name,
-          phone: normalizePhoneNumber(result.data.phone),
+          phone: normalizePhone(result.data.phone),
           email: result.data.email || null,
           address: result.data.address || null,
           city: result.data.city || null,
@@ -532,17 +541,62 @@ const Leads = () => {
           tags: [],
         }));
 
-      const { error } = await supabase
-        .from('leads')
-        .insert(leadsToInsert);
+      let successCount = 0;
+      let duplicateCount = 0;
+      let errorCount = 0;
 
-      if (error) throw error;
+      // Insert leads one by one to handle duplicates gracefully
+      for (const lead of leadsToInsert) {
+        try {
+          const { error } = await supabase
+            .from('leads')
+            .insert([lead]);
 
-      return leadsToInsert.length;
+          if (error) {
+            // Check if it's a duplicate phone error (UNIQUE constraint violation)
+            if (error.code === '23505' && error.message.includes('unique_phone_number')) {
+              duplicateCount++;
+              console.log(`Skipped duplicate phone: ${lead.phone}`);
+            } else {
+              errorCount++;
+              console.error('Insert error:', error);
+            }
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          errorCount++;
+          console.error('Unexpected error:', err);
+        }
+      }
+
+      return { successCount, duplicateCount, errorCount, total: leadsToInsert.length };
     },
-    onSuccess: (count) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
-      toast.success(`Successfully imported ${count} lead${count > 1 ? 's' : ''}`);
+
+      // Build success message
+      const messages = [];
+      if (result.successCount > 0) {
+        messages.push(`${result.successCount} lead${result.successCount > 1 ? 's' : ''} imported`);
+      }
+      if (result.duplicateCount > 0) {
+        messages.push(`${result.duplicateCount} duplicate${result.duplicateCount > 1 ? 's' : ''} skipped`);
+      }
+      if (result.errorCount > 0) {
+        messages.push(`${result.errorCount} error${result.errorCount > 1 ? 's' : ''}`);
+      }
+
+      const summaryMessage = messages.join(', ');
+
+      if (result.successCount > 0) {
+        toast.success(`CSV Import Complete: ${summaryMessage}`);
+      } else if (result.duplicateCount > 0 && result.errorCount === 0) {
+        toast.info(`All leads were duplicates (${result.duplicateCount} skipped)`);
+      } else {
+        toast.error(`Import failed: ${summaryMessage}`);
+      }
+
       handleCloseCsvDialog();
     },
     onError: (error) => {
@@ -550,20 +604,7 @@ const Leads = () => {
     },
   });
 
-  // Phone number validation and normalization
-  const normalizePhoneNumber = (phone: string): string => {
-    // Remove all non-numeric characters
-    const cleaned = phone.replace(/\D/g, '');
-
-    // Add +1 for US numbers if not present
-    if (cleaned.length === 10) {
-      return `+1${cleaned}`;
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      return `+${cleaned}`;
-    }
-
-    return phone; // Return original if can't normalize
-  };
+  // Phone number normalization imported from lib/duplicatePhoneCheck
 
   const isValidPhoneNumber = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, '');
@@ -590,7 +631,7 @@ const Leads = () => {
     }
 
     // Check for duplicates within CSV
-    const normalizedPhone = normalizePhoneNumber(row.phone);
+    const normalizedPhone = normalizePhone(row.phone);
     if (allPhones.has(normalizedPhone)) {
       warnings.push('Duplicate phone number in CSV');
     } else {
@@ -761,7 +802,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
     toast.success('Sample CSV downloaded! Check your downloads folder.');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.first_name || !formData.last_name || !formData.phone || !formData.pipeline_stage_id) {
@@ -769,7 +810,35 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
       return;
     }
 
-    leadMutation.mutate(formData);
+    // Validate phone number (must be exactly 10 digits)
+    const phoneValidationError = validatePhoneNumber(formData.phone);
+    if (phoneValidationError) {
+      setPhoneError(phoneValidationError);
+      toast.error(phoneValidationError);
+      return;
+    }
+
+    // Normalize phone to E.164 format (+1XXXXXXXXXX)
+    const normalizedPhone = normalizePhone(formData.phone);
+
+    // Check for duplicates (only when creating new lead, not editing)
+    if (!editingLead) {
+      const duplicateCheck = await checkDuplicatePhone(normalizedPhone);
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingLead) {
+        setDuplicateLead(duplicateCheck.existingLead);
+        setIsDuplicateDialogOpen(true);
+        return; // Stop submission, show duplicate dialog
+      }
+    }
+
+    // Clear any phone errors
+    setPhoneError('');
+
+    // Update formData with normalized phone before submission
+    leadMutation.mutate({
+      ...formData,
+      phone: normalizedPhone,
+    });
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -1196,14 +1265,33 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                 <Label htmlFor="phone">
                   Phone <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  required
-                  className="border-2 border-red-400"
-                />
+                <div className="flex gap-2">
+                  <div className="flex items-center px-3 bg-muted border border-input rounded-md text-muted-foreground font-medium">
+                    +1
+                  </div>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="7785552345"
+                    value={formData.phone}
+                    onChange={(e) => {
+                      // Only allow digits, limit to 10
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setFormData({ ...formData, phone: digits });
+                      setPhoneError('');
+                    }}
+                    required
+                    className={cn(
+                      "border-2 border-red-400 flex-1",
+                      phoneError && "border-destructive"
+                    )}
+                    maxLength={10}
+                  />
+                </div>
+                {phoneError && (
+                  <p className="text-xs text-destructive">{phoneError}</p>
+                )}
+                <p className="text-xs text-muted-foreground">Enter 10-digit phone number (without +1)</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -1743,6 +1831,21 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Duplicate Contact Warning Dialog */}
+      {duplicateLead && (
+        <DuplicateContactDialog
+          open={isDuplicateDialogOpen}
+          onOpenChange={setIsDuplicateDialogOpen}
+          existingLead={duplicateLead}
+          onViewExisting={() => {
+            setIsDuplicateDialogOpen(false);
+            setIsDialogOpen(false);
+            // Optionally navigate to Pipeline or lead detail
+            toast.info('Navigate to existing contact in Pipeline');
+          }}
+        />
+      )}
     </div>
   );
 };

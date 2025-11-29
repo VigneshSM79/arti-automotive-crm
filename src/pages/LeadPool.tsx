@@ -66,7 +66,10 @@ export default function LeadPool() {
 
       const { error } = await supabase
         .from('leads')
-        .update({ owner_id: user.id })
+        .update({
+          owner_id: user.id,
+          claimed_at: new Date().toISOString()
+        })
         .eq('id', leadId);
 
       if (error) throw error;
