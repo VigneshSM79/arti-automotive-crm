@@ -53,7 +53,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination';
-import { Plus, Search, Columns, Edit, ArrowUp, ArrowDown, ArrowUpDown, Check, ChevronsUpDown, X, Upload, Send, AlertCircle, CheckCircle, XCircle, Download, FileText, ArrowRight } from 'lucide-react';
+import { Plus, Search, Columns, Edit, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Check, ChevronsUpDown, X, Upload, Send, AlertCircle, CheckCircle, XCircle, Download, FileText, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -62,6 +62,7 @@ import { cn } from '@/lib/utils';
 import Papa from 'papaparse';
 import { checkDuplicatePhone, normalizePhoneNumber as normalizePhone, validatePhoneNumber, ExistingLead } from '@/lib/duplicatePhoneCheck';
 import { DuplicateContactDialog } from '@/components/leads/DuplicateContactDialog';
+import { DeleteLeadDialog } from '@/components/leads/DeleteLeadDialog';
 
 const LEADS_PER_PAGE = 25;
 
@@ -164,6 +165,11 @@ const Leads = () => {
   const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
   const [duplicateLead, setDuplicateLead] = useState<ExistingLead | null>(null);
   const [phoneError, setPhoneError] = useState('');
+
+  // Delete confirmation state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<string | null>(null); // Single lead ID
+  const [leadsToDeleteBulk, setLeadsToDeleteBulk] = useState<string[]>([]); // Multiple lead IDs
 
   // Load column visibility from localStorage or default to showing email, status, and tags
   const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
@@ -515,6 +521,37 @@ const Leads = () => {
     },
     onError: (error) => {
       toast.error(`Failed to send messages: ${error.message}`);
+    },
+  });
+
+  // Delete lead(s) mutation - Admin only
+  const deleteLeadsMutation = useMutation({
+    mutationFn: async (leadIds: string[]) => {
+      // Admin-only check
+      if (!roleData?.isAdmin) {
+        throw new Error('Only admins can delete leads');
+      }
+
+      // Delete leads (conversations will be CASCADE deleted automatically)
+      const { error } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', leadIds);
+
+      if (error) throw error;
+
+      return leadIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      toast.success(`Successfully deleted ${count} lead${count > 1 ? 's' : ''}`);
+      setIsDeleteDialogOpen(false);
+      setLeadToDelete(null);
+      setLeadsToDeleteBulk([]);
+      setSelectedLeads(new Set());
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete lead(s): ${error.message}`);
     },
   });
 
@@ -886,6 +923,11 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
     }
   };
 
+  const handleConfirmDelete = () => {
+    const idsToDelete = leadToDelete ? [leadToDelete] : leadsToDeleteBulk;
+    deleteLeadsMutation.mutate(idsToDelete);
+  };
+
   const getSortIcon = (column: keyof Lead) => {
     if (sortColumn !== column) return <ArrowUpDown className="h-4 w-4 ml-1" />;
     return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4 ml-1" /> : <ArrowDown className="h-4 w-4 ml-1" />;
@@ -963,6 +1005,20 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
             >
               Clear Selection
             </Button>
+            {isAdmin && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setLeadsToDeleteBulk(Array.from(selectedLeads));
+                  setIsDeleteDialogOpen(true);
+                }}
+                size="sm"
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Selected
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -1156,6 +1212,19 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive/90 hover:bg-destructive/10"
+                        onClick={() => {
+                          setLeadToDelete(lead.id);
+                          setIsDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -1846,6 +1915,14 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
           }}
         />
       )}
+
+      <DeleteLeadDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        leadCount={leadToDelete ? 1 : leadsToDeleteBulk.length}
+        isDeleting={deleteLeadsMutation.isPending}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };
