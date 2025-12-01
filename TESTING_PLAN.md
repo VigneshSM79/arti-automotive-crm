@@ -18,7 +18,7 @@ wh# Testing Plan - Automotive AI CRM
 
 ### 2. **Lead Pool Flow (Core Business Logic)**
 - [ ] Create test lead with `owner_id = NULL`
-- [ ] Lead appears in Lead Pool page for ALL agents
+- N8n correctly classify the lead as ai hand off. 
 - [ ] Agent A can claim lead → lead disappears from their pool view
 - [ ] Agent B no longer sees claimed lead in their pool (verify RLS)
 - [ ] Claimed lead appears in Agent A's Pipeline
