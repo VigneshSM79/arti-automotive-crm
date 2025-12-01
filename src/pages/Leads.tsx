@@ -1395,7 +1395,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
+                <Label htmlFor="state">Province</Label>
                 <Input
                   id="state"
                   value={formData.state}
@@ -1404,7 +1404,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="zip">ZIP</Label>
+                <Label htmlFor="zip">Postal Code</Label>
                 <Input
                   id="zip"
                   value={formData.zip}

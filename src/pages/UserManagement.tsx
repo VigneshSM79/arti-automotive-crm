@@ -31,7 +31,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { UserCog, Mail, Phone, Building, Shield, Plus, Pencil } from 'lucide-react';
+import { UserCog, Mail, Phone, Building, Shield, Plus, Pencil, Trash2 } from 'lucide-react';
+import { DeleteUserDialog } from '@/components/users/DeleteUserDialog';
 
 interface User {
   id: string;
@@ -75,6 +76,10 @@ export default function UserManagement() {
   const [editMode, setEditMode] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [formData, setFormData] = useState<UserFormData>(initialFormData);
+
+  // Delete user state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Fetch all users
   const { data: users, isLoading } = useQuery({
@@ -178,9 +183,18 @@ export default function UserManagement() {
 
       // 2. Update role if changed
       if (data.role) {
+        // First delete existing roles to ensure single-role policy and avoid conflicts
+        const { error: deleteError } = await supabase
+          .from('user_roles')
+          .delete()
+          .eq('user_id', userId);
+
+        if (deleteError) throw deleteError;
+
+        // Then insert the new role
         const { error: roleError } = await supabase
           .from('user_roles')
-          .upsert({
+          .insert({
             user_id: userId,
             role: data.role,
           });
@@ -201,6 +215,43 @@ export default function UserManagement() {
     onError: (error: any) => {
       toast({
         title: 'Failed to update user',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      // Call Edge Function to delete user (requires service role key)
+      const response = await supabase.functions.invoke('delete-user', {
+        body: { userId },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to delete user');
+      }
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.error || 'Failed to delete user');
+      }
+
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['all-users'] });
+      queryClient.invalidateQueries({ queryKey: ['user-roles'] });
+      setIsDeleteDialogOpen(false);
+      setUserToDelete(null);
+      toast({
+        title: 'User deleted successfully',
+        description: 'The user has been permanently removed.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to delete user',
         description: error.message,
         variant: 'destructive',
       });
@@ -270,6 +321,17 @@ export default function UserManagement() {
         return;
       }
       createUserMutation.mutate(formData);
+    }
+  };
+
+  const handleDeleteUser = (user: User) => {
+    setUserToDelete({ id: user.id, name: user.full_name });
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (userToDelete) {
+      deleteUserMutation.mutate(userToDelete.id);
     }
   };
 
@@ -370,15 +432,26 @@ export default function UserManagement() {
                         />
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(user)}
-                          className="gap-2"
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Edit
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(user)}
+                            className="gap-2"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteUser(user)}
+                            className="gap-2 text-destructive hover:text-destructive/90 hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -559,12 +632,21 @@ export default function UserManagement() {
               {createUserMutation.isPending || updateUserMutation.isPending
                 ? 'Saving...'
                 : editMode
-                ? 'Save Changes'
-                : 'Create User'}
+                  ? 'Save Changes'
+                  : 'Create User'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete User Dialog */}
+      <DeleteUserDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        userName={userToDelete?.name}
+        isDeleting={deleteUserMutation.isPending}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

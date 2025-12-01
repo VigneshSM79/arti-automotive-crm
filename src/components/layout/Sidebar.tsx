@@ -62,7 +62,7 @@ export const Sidebar = () => {
         <div className="h-16 flex items-center justify-between px-4 border-b border-[hsl(var(--sidebar-border))]">
           {!collapsed && (
             <span className="text-xl font-bold tracking-tight text-white">
-              Consumer<span className="text-[hsl(var(--primary))]">Genius</span>
+              Auto<span className="text-[hsl(var(--primary))]">AI</span>
             </span>
           )}
           <Button
