@@ -64,6 +64,8 @@ wh# Testing Plan - Automotive AI CRM
 - [ ] Templates display in preview with variables like `{{first_name}}`
 
 ### 7. **Conversations Page**
+- [ ] Page loads with **first conversation auto-selected** (no blank right panel)
+- [ ] Selected conversation thread **auto-scrolls to bottom** (shows latest message)
 - [ ] SMS threads load correctly for claimed leads
 - [ ] Messages display in chronological order
 - [ ] Orange "AI Handoff" indicator appears when `requires_human_handoff = true`
@@ -71,6 +73,71 @@ wh# Testing Plan - Automotive AI CRM
 - [ ] Sent message appears in thread immediately
 - [ ] `ai_message_count` increments correctly
 - [ ] `handoff_triggered_at` timestamp set when handoff occurs
+- [ ] **New messages move conversation to top of list automatically**
+
+### 7A. **Real-Time Updates (CRITICAL - Dec 9, 2025)**
+
+**Migrations Required (run in order):**
+1. `20251209000000_enable_realtime_replication.sql` - Enables real-time subscriptions
+2. `20251209000001_use_messages_created_at_for_ordering.sql` - Fixes message ordering
+
+**Test Scenario 1: AI Handoff Indicator Updates in Real-Time**
+- [ ] Open Conversations page in browser (do NOT refresh after this)
+- [ ] In Supabase SQL Editor, manually update a conversation:
+  ```sql
+  UPDATE conversations
+  SET requires_human_handoff = true,
+      handoff_triggered_at = NOW()
+  WHERE id = '[conversation-id]';
+  ```
+- [ ] **Expected**: Orange "Action Required" badge appears immediately WITHOUT page refresh
+- [ ] **Expected**: Badge count in "Handoff" tab increments automatically
+- [ ] **Expected**: Console shows "Real-time update received for conversations" log
+
+**Test Scenario 2: New Message Appears in Real-Time**
+- [ ] Open a specific conversation thread (e.g., conversation with ID 'abc-123')
+- [ ] Note the conversation's current position in the list (left panel)
+- [ ] In Supabase SQL Editor, insert a new message:
+  ```sql
+  INSERT INTO messages (conversation_id, direction, content, created_at)
+  VALUES ('[conversation-id]', 'inbound', 'Test real-time message', NOW());
+  ```
+- [ ] **Expected**: New message bubble appears immediately in the thread (right panel)
+- [ ] **Expected**: Conversation jumps to TOP of list (left panel) - auto-sorted by latest message
+- [ ] **Expected**: Thread auto-scrolls down to show the new message
+- [ ] **Expected**: `last_message_at` timestamp updates in conversation list
+- [ ] **Expected**: No page refresh required
+- [ ] **Expected**: Console shows "Real-time update received for messages" log
+
+**Test Scenario 3: Multiple Agents Monitoring Same Conversation**
+- [ ] Agent A opens Conversations page
+- [ ] Agent B (different browser/profile) opens same Conversations page
+- [ ] Simulate AI handoff via SQL (as in Scenario 1)
+- [ ] **Expected**: BOTH agents see handoff indicator appear simultaneously
+- [ ] **Expected**: Both see updated badge counts
+
+**Test Scenario 4: Conversation Status Changes**
+- [ ] Open Conversations page with multiple threads visible
+- [ ] Update conversation status in SQL:
+  ```sql
+  UPDATE conversations
+  SET unread_count = 5
+  WHERE id = '[conversation-id]';
+  ```
+- [ ] **Expected**: Orange dot appears next to conversation immediately
+- [ ] **Expected**: Unread count updates in real-time
+
+**Critical Validation:**
+- [ ] Check browser console for "Subscribed to public:conversations:UPDATE" log
+- [ ] Check browser console for "Subscribed to public:messages:INSERT" log
+- [ ] No errors in console related to Supabase real-time
+- [ ] Network tab shows WebSocket connection to Supabase (wss://)
+
+**If Real-Time NOT Working:**
+1. Verify migration applied: Query `pg_publication_tables` in SQL Editor
+2. Check Supabase Dashboard → Database → Replication → Enable for conversations/messages
+3. Verify no RLS policy blocking real-time events
+4. Check browser console for subscription errors
 
 ### 8. **Settings Page**
 - [ ] **Admin**: Sees "Team Notification Settings" section

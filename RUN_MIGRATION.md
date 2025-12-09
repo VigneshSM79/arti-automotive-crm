@@ -1,9 +1,49 @@
-# How to Add UNIQUE Constraint to Phone Column
+# Database Migration Instructions
 
-## Migration File Created
+## ⚡ LATEST MIGRATIONS (Run in Order)
+
+### Migration 1: Enable Real-Time Updates
+**File:** `supabase/migrations/20251209000000_enable_realtime_replication.sql`
+
+**What This Does:**
+- Enables REPLICA IDENTITY on conversations and messages tables
+- Adds tables to Supabase real-time publication
+- Allows real-time subscriptions to work
+
+### Migration 2: Fix Message Ordering (Source of Truth)
+**File:** `supabase/migrations/20251209000001_use_messages_created_at_for_ordering.sql`
+
+**What This Does:**
+- Creates index on `messages(conversation_id, created_at)` for performance
+- Creates `conversation_list` VIEW that computes `last_message_at` from `messages.created_at`
+- Removes dependency on denormalized `conversations.last_message_at` field
+
+**Why This Is Needed:**
+
+Client reported: *"Real time updating on the Auto AI is a must, I was working a conversation and I didn't notice the pass off because I didn't refresh my screen."*
+
+**Problems with old approach:**
+- ❌ `conversations.last_message_at` was manually set, not automatically updated
+- ❌ New messages didn't move conversation to top of list
+- ❌ Required complex triggers to keep in sync
+- ❌ Could get out of sync if trigger failed
+
+**After these migrations:**
+- ✅ Orange "Action Required" badge appears immediately when AI triggers handoff
+- ✅ New messages show up without refresh
+- ✅ Conversation automatically moves to top when new message arrives
+- ✅ First conversation auto-selected on page load
+- ✅ Auto-scrolls to latest message
+- ✅ Single source of truth: `messages.created_at`
+
+---
+
+## Previous Migration: UNIQUE Phone Constraint
+
+### Migration File
 `supabase/migrations/20251130000001_add_unique_phone_and_claimed_at.sql`
 
-## What This Migration Does
+### What This Migration Does
 
 1. **Adds `claimed_at` column** - Timestamp when lead is claimed by an agent
 2. **Adds UNIQUE constraint on `phone`** - Prevents duplicate phone numbers (hard stop)

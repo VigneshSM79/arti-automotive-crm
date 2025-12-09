@@ -27,7 +27,7 @@ export default function Conversations() {
     queryKey: ['conversations', search, handoffFilter],
     queryFn: async () => {
       let query = supabase
-        .from('conversations')
+        .from('conversation_list') // Use VIEW that computes last_message_at from messages.created_at
         .select(`
           id,
           last_message_at,
@@ -52,7 +52,9 @@ export default function Conversations() {
         query = query.eq('requires_human_handoff', false).gt('ai_message_count', 0);
       }
 
-      query = query.order('last_message_at', { ascending: false });
+      // Order by last_message_at (computed from messages.created_at in view)
+      // NULLS LAST ensures conversations with no messages appear at bottom
+      query = query.order('last_message_at', { ascending: false, nullsFirst: false });
 
       const { data, error } = await query;
       if (error) throw error;
@@ -129,6 +131,14 @@ export default function Conversations() {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
+
+  // Auto-select first conversation when page loads with no selection
+  useEffect(() => {
+    if (!selectedConversationId && conversations && conversations.length > 0) {
+      // Set the first conversation as selected
+      setSearchParams({ id: conversations[0].id });
+    }
+  }, [selectedConversationId, conversations, setSearchParams]);
 
   useEffect(() => {
     if (selectedConversationId) {

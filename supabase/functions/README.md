@@ -10,7 +10,7 @@ This directory contains Supabase Edge Functions for the Automotive AI CRM system
 
 **Why needed:** Creating users with custom passwords requires the service role key, which cannot be exposed in the frontend. This Edge Function runs server-side with secure access to admin APIs.
 
-**Endpoint:** `https://[project-ref].supabase.co/functions/v1/create-user`
+**Endpoint:** `https://rozuvsztctizlyfzezgb.supabase.co/functions/v1/create-user`
 
 **Request Body:**
 ```json
