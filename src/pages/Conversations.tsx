@@ -8,10 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Send, Bot, AlertCircle, MessageSquare } from 'lucide-react';
+import { Search, Send, Bot, AlertCircle, MessageSquare, User, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import { useUserRole } from '@/hooks/useUserRole';
 
 export default function Conversations() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,6 +23,7 @@ export default function Conversations() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: userRole } = useUserRole();
 
   const { data: conversations, isLoading: loadingConversations } = useQuery({
     queryKey: ['conversations', search, handoffFilter],
@@ -36,6 +38,9 @@ export default function Conversations() {
           requires_human_handoff,
           handoff_triggered_at,
           ai_message_count,
+          ai_controlled,
+          takeover_at,
+          takeover_by,
           leads (
             id,
             first_name,
@@ -79,6 +84,40 @@ export default function Conversations() {
     enabled: !!selectedConversationId,
   });
 
+  // Manual AI takeover mutation
+  const takeoverMutation = useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase
+        .from('conversations')
+        .update({
+          ai_controlled: false,
+          takeover_at: new Date().toISOString(),
+          takeover_by: user.id
+        })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      toast({
+        title: 'AI disabled',
+        description: 'You now have manual control of this conversation'
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to take over',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Send manual message via n8n webhook (frontend-first)
   const sendMessageMutation = useMutation({
     mutationFn: async ({ content }: { content: string }) => {
       if (!selectedConversationId) throw new Error('No conversation selected');
@@ -86,28 +125,47 @@ export default function Conversations() {
       const conversation = conversations?.find(c => c.id === selectedConversationId);
       if (!conversation) throw new Error('Conversation not found');
 
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       const twilioPhone = import.meta.env.VITE_TWILIO_PHONE_NUMBER || '';
       const lead = Array.isArray(conversation.leads) ? conversation.leads[0] : conversation.leads;
       const leadPhone = lead?.phone;
 
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: selectedConversationId,
-          direction: 'outbound',
-          content,
-        })
-        .select()
-        .single();
+      if (!leadPhone) throw new Error('Lead phone number not found');
 
-      if (error) throw error;
+      // Call n8n webhook directly for manual SMS
+      const response = await fetch(import.meta.env.VITE_N8N_MANUAL_SMS_WEBHOOK, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_N8N_WEBHOOK_TOKEN}`
+        },
+        body: JSON.stringify({
+          conversation_id: selectedConversationId,
+          content: content,
+          sender: twilioPhone,
+          recipient: leadPhone,
+          sent_by: user.id
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to send SMS');
+      }
+
+      const data = await response.json();
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['messages', selectedConversationId] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       setMessageText('');
-      toast({ title: 'Message sent' });
+      toast({
+        title: 'Message sent successfully!',
+        description: `Twilio SID: ${data.twilio_sid}`
+      });
     },
     onError: (error: any) => {
       toast({
@@ -132,13 +190,42 @@ export default function Conversations() {
     },
   });
 
-  // Auto-select first conversation when page loads with no selection
+  // Track previous first conversation to detect when new ones arrive
+  const previousFirstConvIdRef = useRef<string | null>(null);
+
+  // Auto-select first conversation when page loads OR when new conversation arrives at top
+  // Only auto-select conversations that have messages (last_message_at is not null)
   useEffect(() => {
-    if (!selectedConversationId && conversations && conversations.length > 0) {
-      // Set the first conversation as selected
-      setSearchParams({ id: conversations[0].id });
+    if (conversations && conversations.length > 0) {
+      const firstConversation = conversations[0];
+      const currentFirstId = firstConversation.id;
+      const hasMessages = firstConversation.last_message_at !== null;
+
+      // Only proceed if the conversation has messages
+      if (!hasMessages) {
+        // Don't auto-select empty conversations, but track the ID
+        if (!previousFirstConvIdRef.current) {
+          previousFirstConvIdRef.current = currentFirstId;
+        }
+        return;
+      }
+
+      // Case 1: No conversation selected - select the first one (if it has messages)
+      if (!selectedConversationId) {
+        setSearchParams({ id: currentFirstId });
+        previousFirstConvIdRef.current = currentFirstId;
+      }
+      // Case 2: First conversation changed (new conversation arrived at top) - auto-select it
+      else if (previousFirstConvIdRef.current && previousFirstConvIdRef.current !== currentFirstId) {
+        setSearchParams({ id: currentFirstId });
+        previousFirstConvIdRef.current = currentFirstId;
+      }
+      // Case 3: First load - just track the current first conversation
+      else if (!previousFirstConvIdRef.current) {
+        previousFirstConvIdRef.current = currentFirstId;
+      }
     }
-  }, [selectedConversationId, conversations, setSearchParams]);
+  }, [conversations, selectedConversationId, setSearchParams]);
 
   useEffect(() => {
     if (selectedConversationId) {
@@ -158,10 +245,10 @@ export default function Conversations() {
     queryKey: ['messages', selectedConversationId], // This will also trigger for other conversations if we invalidate 'conversations'
   });
 
-  // 2. Conversation updates (status, handoff, unread counts)
+  // 2. Conversation updates (status, handoff, unread counts) AND new conversations
   useRealtimeSubscription({
     table: 'conversations',
-    event: 'UPDATE',
+    event: '*', // Listen for INSERT, UPDATE, DELETE
     queryKey: ['conversations'],
   });
 
@@ -330,12 +417,55 @@ export default function Conversations() {
                   );
                 })()}
 
-                {selectedConversation.requires_human_handoff && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full animate-pulse">
-                    <AlertCircle className="h-4 w-4 text-orange-500" />
-                    <span className="text-xs font-medium text-orange-500">Action Required</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  {/* AI Status Badge */}
+                  {selectedConversation.ai_controlled ? (
+                    <div className="flex items-center gap-1 text-[#F39C12] font-medium text-xs">
+                      <Bot className="h-3 w-3" />
+                      AI Active
+                    </div>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs px-2 py-1 bg-orange-500/10 text-orange-600 border-orange-500/20">
+                      <User className="h-3 w-3 mr-1" />
+                      Manual Control
+                      {selectedConversation.takeover_at && (
+                        <span className="ml-1 text-[10px] opacity-70">
+                          ({formatDistanceToNow(new Date(selectedConversation.takeover_at), { addSuffix: true })})
+                        </span>
+                      )}
+                    </Badge>
+                  )}
+
+                  {/* Handoff Indicator */}
+                  {selectedConversation.requires_human_handoff && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full animate-pulse">
+                      <AlertCircle className="h-4 w-4 text-orange-500" />
+                      <span className="text-xs font-medium text-orange-500">Action Required</span>
+                    </div>
+                  )}
+
+                  {/* Take Over Button (Admin Only) */}
+                  {userRole?.isAdmin && selectedConversation.ai_controlled && (
+                    <Button
+                      onClick={() => takeoverMutation.mutate(selectedConversationId!)}
+                      disabled={takeoverMutation.isPending}
+                      size="sm"
+                      className="text-xs bg-green-500 hover:bg-green-600 text-white border-green-500 hover:border-green-600"
+                    >
+                      {takeoverMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          Taking over...
+                        </>
+                      ) : (
+                        <>
+                          <User className="h-3 w-3 mr-1" />
+                          Take Over from AI
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {/* Messages Area */}
@@ -393,34 +523,50 @@ export default function Conversations() {
 
               {/* Input Area */}
               <div className="p-4 bg-black/5 border-t border-white/5 backdrop-blur-sm">
-                <div className="relative flex items-end gap-2 bg-background/80 border border-white/10 rounded-xl p-2 shadow-sm focus-within:ring-1 focus-within:ring-primary/50 transition-all">
-                  <Textarea
-                    placeholder="Type your message..."
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    rows={1}
-                    className="min-h-[44px] max-h-[120px] resize-none border-0 focus-visible:ring-0 bg-transparent py-3 px-3"
-                  />
-                  <div className="flex items-center gap-2 pb-1 pr-1">
-                    <span className={`text-[10px] ${charWarning ? 'text-destructive' : 'text-muted-foreground'} transition-colors`}>
-                      {charCount}/160
-                    </span>
-                    <Button
-                      onClick={handleSend}
-                      disabled={!messageText.trim() || charCount > 160 || sendMessageMutation.isPending}
-                      size="icon"
-                      className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-all shadow-md hover:shadow-lg"
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+                {(() => {
+                  const canSendManualMessage = userRole?.isAdmin && !selectedConversation.ai_controlled;
+                  const placeholderText = selectedConversation.ai_controlled
+                    ? "AI is handling this conversation. Click 'Take Over from AI' to send manual messages."
+                    : !userRole?.isAdmin
+                    ? "Only admins can send manual messages"
+                    : "Type your message...";
+
+                  return (
+                    <div className={`relative flex items-end gap-2 bg-background/80 border border-white/10 rounded-xl p-2 shadow-sm transition-all ${canSendManualMessage ? 'focus-within:ring-1 focus-within:ring-primary/50' : 'opacity-60'}`}>
+                      <Textarea
+                        placeholder={placeholderText}
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && canSendManualMessage) {
+                            e.preventDefault();
+                            handleSend();
+                          }
+                        }}
+                        disabled={!canSendManualMessage}
+                        rows={1}
+                        className={`min-h-[44px] max-h-[120px] resize-none border-0 focus-visible:ring-0 bg-transparent py-3 px-3 ${!canSendManualMessage ? 'cursor-not-allowed' : ''}`}
+                      />
+                      <div className="flex items-center gap-2 pb-1 pr-1">
+                        <span className={`text-[10px] ${charWarning ? 'text-destructive' : 'text-muted-foreground'} transition-colors`}>
+                          {charCount}/160
+                        </span>
+                        <Button
+                          onClick={handleSend}
+                          disabled={!canSendManualMessage || !messageText.trim() || charCount > 160 || sendMessageMutation.isPending}
+                          size="icon"
+                          className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-all shadow-md hover:shadow-lg"
+                        >
+                          {sendMessageMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </>
           ) : (

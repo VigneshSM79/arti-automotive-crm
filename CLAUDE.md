@@ -101,15 +101,28 @@ Raw Lead → AI Qualification (n8n) → Lead Pool → Agent Claims → Sales Pip
 - `high-level-architecture-overview.md` - Original architecture design
 - `PROGRESS.md` (in Lovable folder) - Implementation history and current status
 
-### Database Webhook Architecture
+### Hybrid Webhook Architecture (Updated Dec 9, 2025)
 
-**Why this matters:** Frontend NEVER calls n8n directly. Instead:
+**Two patterns for different use cases:**
 
+**Pattern 1: Database Triggers (Automated Background Flows)**
 ```
 Frontend → Supabase INSERT/UPDATE → Database Trigger → Webhook → n8n
 ```
+Used for: AI qualification, campaign enrollment, inbound SMS processing
 
-This allows n8n to be replaced later without frontend changes. Database is the integration point.
+**Pattern 2: Frontend Direct Calls (User-Initiated Manual Actions)**
+```
+Frontend → n8n Webhook (via env variable) → Twilio + Supabase
+              ↓
+        Immediate success/error feedback to user
+```
+Used for: Admin sends manual SMS, one-off user actions requiring immediate feedback
+
+**Why Hybrid?**
+- **Automated flows** need background processing, no user waiting
+- **Manual actions** need immediate feedback, loading states, error handling
+- n8n URLs stored in environment variables (Vercel), easy to update without code changes
 
 **Example:** When a lead is created:
 1. Frontend: `INSERT INTO leads ...`
@@ -537,15 +550,21 @@ Import workflow JSON files via n8n UI:
 - Fair distribution (first-come-first-served)
 - No leads languish in queues waiting for assignment
 
-### Why Database Webhooks Instead of Direct n8n Calls?
+### Why Hybrid Architecture? (Updated Dec 9, 2025)
 
-**Decision:** Frontend → Supabase → Webhook → n8n (not Frontend → n8n)
+**Decision:** Use database triggers for automated flows, direct calls for manual actions
 
-**Rationale:**
-- Clean separation of concerns
-- n8n is replaceable without frontend changes
-- Database is single source of truth
-- Easier to debug and monitor
+**Database Triggers (Pattern 1):**
+- **Use for:** AI processing, automated campaigns, background jobs
+- **Rationale:** No user waiting, clean separation, database is source of truth
+- **Example:** Inbound SMS → Database → n8n AI workflow → Auto-response
+
+**Frontend Direct Calls (Pattern 2):**
+- **Use for:** Manual admin actions, user-initiated operations
+- **Rationale:** Immediate feedback, loading states, better UX, error handling
+- **Example:** Admin sends SMS → Frontend → n8n → Twilio (user sees "Sending..." then "Sent!" or error)
+- **Configuration:** n8n URLs in environment variables (`VITE_N8N_MANUAL_SMS_WEBHOOK`)
+- **Security:** Auth headers (`Authorization: Bearer token`) on webhooks
 
 ---
 

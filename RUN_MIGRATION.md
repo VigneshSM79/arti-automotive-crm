@@ -18,7 +18,74 @@
 - Creates `conversation_list` VIEW that computes `last_message_at` from `messages.created_at`
 - Removes dependency on denormalized `conversations.last_message_at` field
 
+### Migration 3: Manual AI Override (NEW - Dec 9, 2025)
+**File:** `supabase/migrations/20251209000002_add_manual_ai_override.sql`
+
+**What This Does:**
+- Adds `ai_controlled` (BOOLEAN) - Master switch to enable/disable AI
+- Adds `takeover_at` (TIMESTAMPTZ) - When admin took over
+- Adds `takeover_by` (UUID) - Which admin took over
+- Creates performance indexes
+
+**Note:** Manual SMS sending uses frontend-direct n8n calls (not database triggers) for immediate user feedback and better UX.
+
+### Migration 4: Update conversation_list VIEW (NEW - Dec 9, 2025)
+**File:** `supabase/migrations/20251209000003_update_conversation_list_view.sql`
+
+**What This Does:**
+- Updates `conversation_list` VIEW to include the new AI control fields
+- Adds `ai_controlled`, `takeover_at`, `takeover_by` to the VIEW
+- Fixes "no conversations showing" issue in frontend
+
 **Why This Is Needed:**
+Migration 3 added new columns to the `conversations` table, but the `conversation_list` VIEW (created in Migration 2) didn't include them. The frontend queries these fields from the VIEW, causing SQL errors and no conversations to display.
+
+**After this migration:**
+- ✅ Frontend can query AI control fields from conversation_list VIEW
+- ✅ Conversations display correctly in Conversations page
+- ✅ AI status badge shows "AI Active" vs "Manual Control"
+- ✅ "Take Over from AI" button works properly
+
+### Migration 5: Enable Real-Time for Leads Table (NEW - Dec 9, 2025)
+**File:** `supabase/migrations/20251209000004_enable_realtime_for_leads.sql`
+
+**What This Does:**
+- Enables REPLICA IDENTITY on leads table
+- Adds leads table to Supabase real-time publication
+- Enables automatic table updates without refresh
+
+**Why This Is Needed:**
+The Leads page already has real-time subscriptions implemented in code (line 140-144 in Leads.tsx), but the leads table didn't have real-time replication enabled in the database. This caused the leads table to require manual refresh to see updates.
+
+**After this migration:**
+- ✅ New leads appear immediately after creation (CSV import, manual entry)
+- ✅ Tag changes update without refresh
+- ✅ Status changes show instantly
+- ✅ Deletions remove rows in real-time
+- ✅ No more manual page refresh needed
+
+---
+
+**Why This Is Needed:**
+
+Client feedback: *"Manual override of the AI is a must - If a conversation is headed south, glitch in the AI or a client who is messing around and having long conversations just for the fun of it but not a serious buyer. We could potentially lose clients this way and it will increase our operating costs of AI."*
+
+**Problems without manual override:**
+- ❌ AI can waste money on time-wasters
+- ❌ Agent can't stop AI if conversation going south
+- ❌ No way to take control when AI messes up
+- ❌ Risk losing real buyers if AI gives wrong info
+
+**After this migration:**
+- ✅ Admin can click "Take Over from AI" button
+- ✅ AI immediately stops responding to that conversation
+- ✅ Admin can send manual messages (Workflow 6 - to be implemented)
+- ✅ Audit trail of who took over and when
+- ✅ Cost control - stop AI for time wasters
+
+---
+
+**Why Real-Time Updates Needed:**
 
 Client reported: *"Real time updating on the Auto AI is a must, I was working a conversation and I didn't notice the pass off because I didn't refresh my screen."*
 
