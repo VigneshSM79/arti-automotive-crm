@@ -840,8 +840,8 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.first_name || !formData.last_name || !formData.phone || !formData.pipeline_stage_id) {
-      toast.error('Please fill in all required fields');
+    if (!formData.first_name || !formData.last_name || !formData.phone || !formData.pipeline_stage_id || formData.tags.length === 0) {
+      toast.error('Please fill in all required fields (including at least one tag)');
       return;
     }
 
@@ -1435,7 +1435,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
 
             <div className="space-y-2">
               <Label htmlFor="tags">
-                Tags
+                Tags <span className="text-destructive">*</span>
               </Label>
               <Popover>
                 <PopoverTrigger asChild>
