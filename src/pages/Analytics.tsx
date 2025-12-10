@@ -3,8 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { MetricCard } from '@/components/shared/MetricCard';
-import { MessageSquare, MessageCircle, TrendingUp, Tag } from 'lucide-react';
+import { MessageSquare, MessageCircle, TrendingUp, Tag, CalendarIcon } from 'lucide-react';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 import {
   LineChart,
   Line,
@@ -21,16 +25,36 @@ import {
 
 export default function Analytics() {
   const [dateRange, setDateRange] = useState('7');
+  const [customDateRange, setCustomDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: undefined,
+    to: undefined,
+  });
 
   const getDateRange = () => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - parseInt(dateRange));
-    return { start: start.toISOString(), end: end.toISOString() };
+    if (dateRange === 'custom' && customDateRange.from && customDateRange.to) {
+      // Use custom date range
+      const start = new Date(customDateRange.from);
+      start.setHours(0, 0, 0, 0); // Start of day
+      const end = new Date(customDateRange.to);
+      end.setHours(23, 59, 59, 999); // End of day
+      return { start: start.toISOString(), end: end.toISOString() };
+    } else if (dateRange === 'custom') {
+      // Custom selected but no dates chosen, use last 7 days as fallback
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 7);
+      return { start: start.toISOString(), end: end.toISOString() };
+    } else {
+      // Preset date ranges (7, 30, 90 days)
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - parseInt(dateRange));
+      return { start: start.toISOString(), end: end.toISOString() };
+    }
   };
 
   const { data: metrics, isLoading: loadingMetrics } = useQuery({
-    queryKey: ['analytics', 'metrics', dateRange],
+    queryKey: ['analytics', 'metrics', dateRange, customDateRange.from, customDateRange.to],
     queryFn: async () => {
       const { start, end } = getDateRange();
 
@@ -64,7 +88,7 @@ export default function Analytics() {
   });
 
   const { data: volumeData } = useQuery({
-    queryKey: ['analytics', 'volume', dateRange],
+    queryKey: ['analytics', 'volume', dateRange, customDateRange.from, customDateRange.to],
     queryFn: async () => {
       const { start, end } = getDateRange();
 
@@ -135,6 +159,49 @@ export default function Analytics() {
               Last {days} days
             </Button>
           ))}
+
+          {/* Custom Date Range Picker */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={dateRange === 'custom' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  "justify-start text-left font-normal",
+                  !customDateRange.from && !customDateRange.to && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {customDateRange.from && customDateRange.to ? (
+                  <>
+                    {format(customDateRange.from, "MMM d, yyyy")} - {format(customDateRange.to, "MMM d, yyyy")}
+                  </>
+                ) : (
+                  <span>Custom Range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="range"
+                selected={{
+                  from: customDateRange.from,
+                  to: customDateRange.to,
+                }}
+                onSelect={(range) => {
+                  setCustomDateRange({
+                    from: range?.from,
+                    to: range?.to,
+                  });
+                  if (range?.from && range?.to) {
+                    setDateRange('custom');
+                  }
+                }}
+                numberOfMonths={2}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
