@@ -12,15 +12,15 @@ import { cn } from '@/lib/utils';
 import {
   LineChart,
   Line,
-  PieChart,
-  Pie,
-  Cell,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Cell,
 } from 'recharts';
 
 export default function Analytics() {
@@ -119,25 +119,47 @@ export default function Analytics() {
     },
   });
 
-  const { data: conversationStats } = useQuery({
-    queryKey: ['analytics', 'conversations'],
+  const { data: pipelineFunnel } = useQuery({
+    queryKey: ['analytics', 'pipeline-funnel'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('status');
+      // Fetch all pipeline stages
+      const { data: stages, error: stagesError } = await supabase
+        .from('pipeline_stages')
+        .select('id, name, color')
+        .order('order_position', { ascending: true });
 
-      if (error) throw error;
+      if (stagesError) throw stagesError;
 
-      const stats = data?.reduce((acc: any, conv: any) => {
-        acc[conv.status] = (acc[conv.status] || 0) + 1;
+      // Fetch all leads grouped by stage
+      const { data: leads, error: leadsError } = await supabase
+        .from('leads')
+        .select('pipeline_stage_id');
+
+      if (leadsError) throw leadsError;
+
+      // Count leads per stage
+      const leadCounts = leads?.reduce((acc: any, lead: any) => {
+        if (lead.pipeline_stage_id) {
+          acc[lead.pipeline_stage_id] = (acc[lead.pipeline_stage_id] || 0) + 1;
+        }
         return acc;
       }, {});
 
-      return [
-        { name: 'Active', value: stats?.active || 0, color: '#00C851' },
-        { name: 'Closed', value: stats?.closed || 0, color: '#F39C12' },
-        { name: 'Archived', value: stats?.archived || 0, color: '#7F8C8D' },
-      ];
+      // Build funnel data
+      const funnelData = stages?.map((stage, index) => {
+        const count = leadCounts?.[stage.id] || 0;
+        const prevCount = index > 0 ? (leadCounts?.[stages[index - 1].id] || 0) : count;
+        const conversionRate = prevCount > 0 ? ((count / prevCount) * 100).toFixed(1) : '100.0';
+
+        return {
+          name: stage.name,
+          count: count,
+          color: stage.color,
+          conversionRate: index === 0 ? '100.0' : conversionRate,
+        };
+      }) || [];
+
+      return funnelData;
     },
   });
 
@@ -255,30 +277,43 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* Conversations Pie Chart */}
+        {/* Pipeline Conversion Funnel */}
         <Card>
           <CardHeader>
-            <CardTitle>Conversations by Status</CardTitle>
+            <CardTitle>Pipeline Conversion Funnel</CardTitle>
+            <p className="text-sm text-muted-foreground">Lead distribution across pipeline stages</p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={conversationStats}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {conversationStats?.map((entry: any, index: number) => (
+              <BarChart
+                data={pipelineFunnel}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis dataKey="name" type="category" width={120} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-white p-3 border rounded shadow-lg">
+                          <p className="font-semibold">{data.name}</p>
+                          <p className="text-sm">Leads: <strong>{data.count}</strong></p>
+                          <p className="text-sm">Conversion: <strong>{data.conversionRate}%</strong></p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                  {pipelineFunnel?.map((entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
