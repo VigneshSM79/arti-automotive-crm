@@ -166,10 +166,7 @@ export default function Analytics() {
               <Button
                 variant={dateRange === 'custom' ? 'default' : 'outline'}
                 size="sm"
-                className={cn(
-                  "justify-start text-left font-normal",
-                  !customDateRange.from && !customDateRange.to && "text-muted-foreground"
-                )}
+                className="justify-start text-left font-normal"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {customDateRange.from && customDateRange.to ? (
@@ -197,6 +194,7 @@ export default function Analytics() {
                     setDateRange('custom');
                   }
                 }}
+                disabled={{ after: new Date() }}
                 numberOfMonths={2}
                 initialFocus
               />
