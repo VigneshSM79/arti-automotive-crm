@@ -281,7 +281,6 @@ export default function Analytics() {
         <Card>
           <CardHeader>
             <CardTitle>Pipeline Conversion Funnel</CardTitle>
-            <p className="text-sm text-muted-foreground">Lead distribution across pipeline stages</p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -291,8 +290,8 @@ export default function Analytics() {
                 margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={120} />
+                <XAxis type="number" fontSize={12} />
+                <YAxis dataKey="name" type="category" width={120} fontSize={12} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
