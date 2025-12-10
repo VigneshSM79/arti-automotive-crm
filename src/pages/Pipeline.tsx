@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Search, Phone, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { Search, Phone, Mail, MessageSquare, Plus, Trash2, Pencil } from 'lucide-react';
 import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
@@ -40,6 +40,9 @@ export default function Pipeline() {
   const [newStageColor, setNewStageColor] = useState('#3B82F6');
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [stageToDelete, setStageToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [stageToEdit, setStageToEdit] = useState<{ id: string; name: string; color: string } | null>(null);
+  const [editStageName, setEditStageName] = useState('');
+  const [editStageColor, setEditStageColor] = useState('#3B82F6');
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor));
@@ -201,6 +204,32 @@ export default function Pipeline() {
     },
   });
 
+  const editStageMutation = useMutation({
+    mutationFn: async ({ stageId, name, color }: { stageId: string; name: string; color: string }) => {
+      const { error } = await supabase
+        .from('pipeline_stages')
+        .update({
+          name,
+          color,
+        })
+        .eq('id', stageId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      setStageToEdit(null);
+      toast({ title: 'Pipeline stage updated successfully!' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update stage',
+        description: error.message,
+        variant: 'destructive'
+      });
+    },
+  });
+
   const deleteStageMutation = useMutation({
     mutationFn: async (stageId: string) => {
       // Check if stage has any leads
@@ -277,6 +306,20 @@ export default function Pipeline() {
       return;
     }
     createStageMutation.mutate({ name: newStageName, color: newStageColor });
+  };
+
+  const handleEditStage = () => {
+    if (!editStageName.trim()) {
+      toast({
+        title: 'Stage name required',
+        description: 'Please enter a name for the stage',
+        variant: 'destructive'
+      });
+      return;
+    }
+    if (stageToEdit) {
+      editStageMutation.mutate({ stageId: stageToEdit.id, name: editStageName, color: editStageColor });
+    }
   };
 
   const filteredLeads = leads?.filter((lead: any) =>
@@ -362,19 +405,34 @@ export default function Pipeline() {
                         >
                           {stage.name}
                         </div>
-                        {/* Delete Stage Button - Admin Only */}
+                        {/* Edit & Delete Stage Buttons - Admin Only */}
                         {userRole?.isAdmin && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setStageToDelete({ id: stage.id, name: stage.name });
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 hover:bg-primary/10 hover:text-primary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setStageToEdit({ id: stage.id, name: stage.name, color: stage.color });
+                                setEditStageName(stage.name);
+                                setEditStageColor(stage.color);
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setStageToDelete({ id: stage.id, name: stage.name });
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                       <Badge variant="secondary">
@@ -552,6 +610,72 @@ export default function Pipeline() {
                 disabled={createStageMutation.isPending}
               >
                 {createStageMutation.isPending ? 'Creating...' : 'Create Stage'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Stage Dialog */}
+      <Dialog open={!!stageToEdit} onOpenChange={() => setStageToEdit(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Pipeline Stage</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-stage-name">Stage Name</Label>
+              <Input
+                id="edit-stage-name"
+                placeholder="e.g., Sealed Deal, Negotiating, etc."
+                value={editStageName}
+                onChange={(e) => setEditStageName(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-stage-color">Stage Color</Label>
+              <Select value={editStageColor} onValueChange={setEditStageColor}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-4 h-4 rounded border border-border"
+                        style={{ backgroundColor: editStageColor }}
+                      />
+                      <span>{STAGE_COLORS.find(c => c.value === editStageColor)?.name || 'Select color'}</span>
+                    </div>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGE_COLORS.map((color) => (
+                    <SelectItem key={color.value} value={color.value}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-4 rounded border border-border"
+                          style={{ backgroundColor: color.value }}
+                        />
+                        <span>{color.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Choose a color for the stage badge
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setStageToEdit(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleEditStage}
+                disabled={editStageMutation.isPending}
+              >
+                {editStageMutation.isPending ? 'Updating...' : 'Update Stage'}
               </Button>
             </div>
           </div>
