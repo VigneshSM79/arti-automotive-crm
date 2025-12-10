@@ -64,6 +64,39 @@ The Leads page already has real-time subscriptions implemented in code (line 140
 - ✅ Deletions remove rows in real-time
 - ✅ No more manual page refresh needed
 
+### Migration 6: Assign Default Pipeline Stage to Existing Leads (NEW - Dec 9, 2025)
+**File:** `supabase/migrations/20251209000005_assign_default_pipeline_stage.sql`
+
+**What This Does:**
+- Assigns default pipeline stage to all existing leads with `pipeline_stage_id = NULL`
+- Ensures all leads appear in the Pipeline page
+
+**Why This Is Needed:**
+Existing leads in the database have `pipeline_stage_id = NULL`, which causes them not to appear in any pipeline stage column. The Pipeline page only shows leads that are assigned to a stage.
+
+**After this migration:**
+- ✅ All existing leads assigned to default/first pipeline stage
+- ✅ Leads now visible in Pipeline page
+- ✅ Users can drag & drop leads between stages
+- ✅ No more blank pipeline columns
+
+### Migration 7: Add RLS Policies for pipeline_stages Table (NEW - Dec 9, 2025)
+**File:** `supabase/migrations/20251209000006_add_pipeline_stages_rls_policies.sql`
+
+**What This Does:**
+- Adds Row-Level Security policies for `pipeline_stages` table
+- Allows all users to view stages
+- Allows only admins to create, update, delete stages
+
+**Why This Is Needed:**
+The `pipeline_stages` table has RLS enabled but no INSERT policy, causing "row violates row-level security" error when admins try to create new pipeline stages from the UI.
+
+**After this migration:**
+- ✅ All authenticated users can view pipeline stages
+- ✅ Admins can create new custom stages via "New Stage" button
+- ✅ Admins can update/delete stages
+- ✅ Non-admin users cannot modify stages (read-only)
+
 ---
 
 **Why This Is Needed:**

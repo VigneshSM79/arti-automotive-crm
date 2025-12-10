@@ -270,7 +270,7 @@ Complete database schema for Automotive AI Platform Version 1, designed for Supa
 |--------|------|-------------|-------------|
 | `id` | UUID | PRIMARY KEY, DEFAULT uuid_generate_v4() | Stage ID |
 | `name` | VARCHAR(100) | NOT NULL | Stage name |
-| `order` | INTEGER | NOT NULL | Display order (1, 2, 3, 4) |
+| `order_position` | INTEGER | NOT NULL | Display order (1, 2, 3, 4) |
 | `color` | VARCHAR(50) | NULL | Badge color |
 | `is_default` | BOOLEAN | DEFAULT false | Whether this is the default stage for new leads |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Stage creation timestamp |
@@ -278,7 +278,7 @@ Complete database schema for Automotive AI Platform Version 1, designed for Supa
 
 **Indexes:**
 - PRIMARY KEY on `id`
-- UNIQUE INDEX on `order`
+- UNIQUE INDEX on `order_position`
 
 **Relationships:**
 - Referenced by: `leads.pipeline_stage_id`

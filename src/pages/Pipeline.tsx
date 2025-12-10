@@ -12,8 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Search, Phone, Mail, MessageSquare } from 'lucide-react';
-import { DndContext, DragEndEvent, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import { Search, Phone, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function Pipeline() {
@@ -21,6 +21,10 @@ export default function Pipeline() {
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [editedNotes, setEditedNotes] = useState('');
   const [selectedSalesperson, setSelectedSalesperson] = useState<string>('all');
+  const [isCreateStageOpen, setIsCreateStageOpen] = useState(false);
+  const [newStageName, setNewStageName] = useState('');
+  const [newStageColor, setNewStageColor] = useState('#3B82F6');
+  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor));
@@ -145,14 +149,94 @@ export default function Pipeline() {
     },
   });
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over) return;
+  const createStageMutation = useMutation({
+    mutationFn: async ({ name, color }: { name: string; color: string }) => {
+      // Get the highest order number
+      const { data: existingStages } = await supabase
+        .from('pipeline_stages')
+        .select('order_position')
+        .order('order_position', { ascending: false })
+        .limit(1);
 
-    const leadId = active.id as string;
-    const newStageId = over.id as string;
+      const nextOrder = existingStages && existingStages.length > 0 ? existingStages[0].order_position + 1 : 1;
 
-    updateStageMutation.mutate({ leadId, stageId: newStageId });
+      const { error } = await supabase
+        .from('pipeline_stages')
+        .insert({
+          name,
+          color,
+          order_position: nextOrder,
+        });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      setIsCreateStageOpen(false);
+      setNewStageName('');
+      setNewStageColor('#3B82F6');
+      toast({ title: 'Pipeline stage created successfully!' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to create stage',
+        description: error.message,
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const deleteStageMutation = useMutation({
+    mutationFn: async (stageId: string) => {
+      // Check if stage has any leads
+      const { data: leadsInStage } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('pipeline_stage_id', stageId)
+        .limit(1);
+
+      if (leadsInStage && leadsInStage.length > 0) {
+        throw new Error('Cannot delete stage with existing leads. Please move or delete the leads first.');
+      }
+
+      const { error } = await supabase
+        .from('pipeline_stages')
+        .delete()
+        .eq('id', stageId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      toast({ title: 'Pipeline stage deleted successfully!' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to delete stage',
+        description: error.message,
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const handleDragStart = (leadId: string) => {
+    setDraggedLeadId(leadId);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Required to allow drop
+  };
+
+  const handleDrop = (e: React.DragEvent, stageId: string) => {
+    e.preventDefault();
+    if (draggedLeadId) {
+      updateStageMutation.mutate({ leadId: draggedLeadId, stageId });
+      setDraggedLeadId(null);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedLeadId(null);
   };
 
   const openLeadDetail = (lead: any) => {
@@ -164,6 +248,18 @@ export default function Pipeline() {
     if (selectedLead) {
       updateLeadMutation.mutate({ leadId: selectedLead.id, notes: editedNotes });
     }
+  };
+
+  const handleCreateStage = () => {
+    if (!newStageName.trim()) {
+      toast({
+        title: 'Stage name required',
+        description: 'Please enter a name for the new stage',
+        variant: 'destructive'
+      });
+      return;
+    }
+    createStageMutation.mutate({ name: newStageName, color: newStageColor });
   };
 
   const filteredLeads = leads?.filter((lead: any) =>
@@ -182,6 +278,13 @@ export default function Pipeline() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Create New Stage Button - Admin Only */}
+          {userRole?.isAdmin && (
+            <Button onClick={() => setIsCreateStageOpen(true)} variant="outline" size="sm">
+              <Plus className="h-4 w-4 mr-1" />
+              New Stage
+            </Button>
+          )}
           {/* Admin: Salesperson Filter */}
           {userRole?.isAdmin && allUsers && (
             <Select value={selectedSalesperson} onValueChange={setSelectedSalesperson}>
@@ -219,69 +322,95 @@ export default function Pipeline() {
           ))}
         </div>
       ) : (
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="flex gap-4 overflow-x-auto pb-4">
-            {stages?.map((stage: any) => {
-              const stageLeads = filteredLeads?.filter(
-                (lead: any) => lead.pipeline_stage_id === stage.id
-              );
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          {stages?.map((stage: any) => {
+            const stageLeads = filteredLeads?.filter(
+              (lead: any) => lead.pipeline_stage_id === stage.id
+            );
 
-              return (
-                <div key={stage.id} data-stage-id={stage.id} className="min-w-[320px]">
-                  <Card className="h-full">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center justify-between text-base">
+            return (
+              <div
+                key={stage.id}
+                className="min-w-[320px]"
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, stage.id)}
+              >
+                <Card className="h-full">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between text-base">
+                      <div className="flex items-center gap-2">
                         <div
                           className="px-3 py-1 rounded-full text-white text-sm font-medium"
                           style={{ backgroundColor: stage.color }}
                         >
                           {stage.name}
                         </div>
-                        <Badge variant="secondary">
-                          {stageLeads?.length || 0}
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto">
-                      {stageLeads?.map((lead: any) => (
-                        <Card
-                          key={lead.id}
-                          className="p-3 cursor-pointer hover:shadow-md transition-shadow !bg-blue-200 border border-border"
-                          onClick={() => openLeadDetail(lead)}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('leadId', lead.id);
-                          }}
-                        >
-                          <p className="font-medium text-sm">
-                            {lead.first_name} {lead.last_name}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {lead.phone}
-                          </p>
-                          {lead.tags && lead.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {lead.tags.map((tag: string, idx: number) => (
-                                <Badge key={idx} variant="outline" className="text-xs bg-white border-slate-400 text-slate-700 hover:border-slate-500 hover:shadow-sm transition-all cursor-pointer">
-                                  {tag}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          <div className="flex gap-2 mt-2">
-                            <MessageSquare className="h-3 w-3 text-muted-foreground" />
-                            <Phone className="h-3 w-3 text-muted-foreground" />
-                            {lead.email && <Mail className="h-3 w-3 text-muted-foreground" />}
+                        {/* Delete Stage Button - Admin Only */}
+                        {userRole?.isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Are you sure you want to delete "${stage.name}" stage?`)) {
+                                deleteStageMutation.mutate(stage.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                      <Badge variant="secondary">
+                        {stageLeads?.length || 0}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent
+                    className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto min-h-[200px]"
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => handleDrop(e, stage.id)}
+                  >
+                    {stageLeads?.map((lead: any) => (
+                      <Card
+                        key={lead.id}
+                        draggable
+                        onDragStart={() => handleDragStart(lead.id)}
+                        onDragEnd={handleDragEnd}
+                        className={`p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow !bg-blue-200 border border-border ${
+                          draggedLeadId === lead.id ? 'opacity-50' : ''
+                        }`}
+                        onClick={() => openLeadDetail(lead)}
+                      >
+                        <p className="font-medium text-sm">
+                          {lead.first_name} {lead.last_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {lead.phone}
+                        </p>
+                        {lead.tags && lead.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {lead.tags.map((tag: string, idx: number) => (
+                              <Badge key={idx} variant="outline" className="text-xs bg-white border-slate-400 text-slate-700 hover:border-slate-500 hover:shadow-sm transition-all cursor-pointer">
+                                {tag}
+                              </Badge>
+                            ))}
                           </div>
-                        </Card>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </div>
-              );
-            })}
-          </div>
-        </DndContext>
+                        )}
+                        <div className="flex gap-2 mt-2">
+                          <MessageSquare className="h-3 w-3 text-muted-foreground" />
+                          <Phone className="h-3 w-3 text-muted-foreground" />
+                          {lead.email && <Mail className="h-3 w-3 text-muted-foreground" />}
+                        </div>
+                      </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {/* Lead Detail Modal */}
@@ -345,6 +474,61 @@ export default function Pipeline() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create New Stage Modal */}
+      <Dialog open={isCreateStageOpen} onOpenChange={setIsCreateStageOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Pipeline Stage</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="stage-name">Stage Name</Label>
+              <Input
+                id="stage-name"
+                placeholder="e.g., Sealed Deal, Negotiating, etc."
+                value={newStageName}
+                onChange={(e) => setNewStageName(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="stage-color">Stage Color</Label>
+              <div className="flex gap-2 mt-2">
+                <Input
+                  id="stage-color"
+                  type="color"
+                  value={newStageColor}
+                  onChange={(e) => setNewStageColor(e.target.value)}
+                  className="w-20 h-10"
+                />
+                <Input
+                  value={newStageColor}
+                  onChange={(e) => setNewStageColor(e.target.value)}
+                  placeholder="#3B82F6"
+                  className="flex-1"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Choose a color for the stage badge
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setIsCreateStageOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateStage}
+                disabled={createStageMutation.isPending}
+              >
+                {createStageMutation.isPending ? 'Creating...' : 'Create Stage'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
