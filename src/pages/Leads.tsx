@@ -767,7 +767,6 @@ const Leads = () => {
   };
 
   const handleOpenDialog = (lead?: Lead) => {
-    console.log('Opening dialog, pipeline stages:', pipelineStages);
     if (lead) {
       setEditingLead(lead);
       setFormData({
@@ -799,7 +798,6 @@ const Leads = () => {
         notes: '',
       });
     }
-    console.log('Setting dialog open to true');
     setIsDialogOpen(true);
   };
 
@@ -842,8 +840,8 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.first_name || !formData.last_name || !formData.phone || !formData.pipeline_stage_id || formData.tags.length === 0) {
-      toast.error('Please fill in all required fields (including at least one tag)');
+    if (!formData.first_name || !formData.last_name || !formData.phone || !formData.pipeline_stage_id) {
+      toast.error('Please fill in all required fields');
       return;
     }
 
@@ -1034,13 +1032,13 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
               setSearchQuery(e.target.value);
               setCurrentPage(1);
             }}
-            className="pl-10 border-2 border-red-400"
+            className="pl-10"
           />
         </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="border-2 border-yellow-500">
+            <Button variant="outline">
               <Columns className="h-4 w-4 mr-2" />
               Columns
             </Button>
@@ -1312,7 +1310,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   value={formData.first_name}
                   onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                   required
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
               <div className="space-y-2">
@@ -1324,7 +1322,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   value={formData.last_name}
                   onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                   required
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
             </div>
@@ -1351,7 +1349,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                     }}
                     required
                     className={cn(
-                      "border-2 border-red-400 flex-1",
+                      "border border-input flex-1",
                       phoneError && "border-destructive"
                     )}
                     maxLength={10}
@@ -1369,7 +1367,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
             </div>
@@ -1380,7 +1378,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                 id="address"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="border-2 border-red-400"
+                className="border border-input"
               />
             </div>
 
@@ -1391,7 +1389,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   id="city"
                   value={formData.city}
                   onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
               <div className="space-y-2">
@@ -1400,7 +1398,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   id="state"
                   value={formData.state}
                   onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
               <div className="space-y-2">
@@ -1409,7 +1407,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   id="zip"
                   value={formData.zip}
                   onChange={(e) => setFormData({ ...formData, zip: e.target.value })}
-                  className="border-2 border-red-400"
+                  className="border border-input"
                 />
               </div>
             </div>
@@ -1437,7 +1435,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
 
             <div className="space-y-2">
               <Label htmlFor="tags">
-                Tags <span className="text-destructive">*</span>
+                Tags
               </Label>
               <Popover>
                 <PopoverTrigger asChild>
@@ -1445,7 +1443,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                     variant="outline"
                     role="combobox"
                     className={cn(
-                      "w-full justify-between border-2 border-red-400",
+                      "w-full justify-between border border-input",
                       !formData.tags.length && "text-muted-foreground"
                     )}
                   >
@@ -1523,7 +1521,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={4}
-                className="border-2 border-red-400"
+                className="border border-input"
               />
             </div>
 

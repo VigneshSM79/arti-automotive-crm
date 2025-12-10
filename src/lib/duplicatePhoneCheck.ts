@@ -32,7 +32,6 @@ export async function checkDuplicatePhone(
       .maybeSingle();
 
     if (error) {
-      console.error('Error checking duplicate phone:', error);
       return { isDuplicate: false };
     }
 
@@ -41,7 +40,6 @@ export async function checkDuplicatePhone(
       existingLead: data || undefined,
     };
   } catch (error) {
-    console.error('Unexpected error in checkDuplicatePhone:', error);
     return { isDuplicate: false };
   }
 }

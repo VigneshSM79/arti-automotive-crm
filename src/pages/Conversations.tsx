@@ -363,7 +363,7 @@ export default function Conversations() {
 
                     <div className="flex items-center justify-between mt-2 pl-4">
                       <p className="text-xs text-muted-foreground truncate max-w-[140px]">
-                        {lead?.phone_number}
+                        {lead?.phone}
                       </p>
                       <div className="flex items-center gap-2">
                         {conversation.requires_human_handoff && (
@@ -410,7 +410,7 @@ export default function Conversations() {
                           {lead?.first_name} {lead?.last_name}
                         </h3>
                         <p className="text-xs text-muted-foreground mt-1 font-medium">
-                          {lead?.phone_number}
+                          {lead?.phone}
                         </p>
                       </div>
                     </div>
