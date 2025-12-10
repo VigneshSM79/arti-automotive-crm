@@ -148,16 +148,13 @@ export default function Analytics() {
       }, {});
 
       // Build funnel data
-      const funnelData = stages?.map((stage, index) => {
+      const funnelData = stages?.map((stage) => {
         const count = leadCounts?.[stage.id] || 0;
-        const prevCount = index > 0 ? (leadCounts?.[stages[index - 1].id] || 0) : count;
-        const conversionRate = prevCount > 0 ? ((count / prevCount) * 100).toFixed(1) : '100.0';
 
         return {
           name: stage.name,
           count: count,
           color: stage.color,
-          conversionRate: index === 0 ? '100.0' : conversionRate,
         };
       }) || [];
 
@@ -324,11 +321,17 @@ export default function Analytics() {
               <BarChart
                 data={pipelineFunnel}
                 layout="vertical"
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" fontSize={12} />
-                <YAxis dataKey="name" type="category" width={120} fontSize={12} />
+                <YAxis
+                  dataKey="name"
+                  type="category"
+                  width={150}
+                  fontSize={12}
+                  interval={0}
+                />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
@@ -337,7 +340,6 @@ export default function Analytics() {
                         <div className="bg-white p-3 border rounded shadow-lg">
                           <p className="font-semibold">{data.name}</p>
                           <p className="text-sm">Leads: <strong>{data.count}</strong></p>
-                          <p className="text-sm">Conversion: <strong>{data.conversionRate}%</strong></p>
                         </div>
                       );
                     }
