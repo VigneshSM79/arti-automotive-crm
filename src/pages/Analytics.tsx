@@ -62,7 +62,7 @@ export default function Analytics() {
 
       const { data: messages, error } = await supabase
         .from('messages')
-        .select('direction, created_at')
+        .select('direction, created_at, conversation_id')
         .gte('created_at', start)
         .lte('created_at', end);
 
@@ -70,19 +70,38 @@ export default function Analytics() {
 
       const inbound = messages?.filter(m => m.direction === 'inbound').length || 0;
       const outbound = messages?.filter(m => m.direction === 'outbound').length || 0;
-      const responseRate = outbound > 0 ? ((inbound / outbound) * 100).toFixed(1) : '0';
+
+      // Calculate true response rate: % of conversations that received at least one reply
+      const conversationsWithOutbound = new Set(
+        messages?.filter(m => m.direction === 'outbound').map(m => m.conversation_id)
+      );
+      const conversationsWithInbound = new Set(
+        messages?.filter(m => m.direction === 'inbound').map(m => m.conversation_id)
+      );
+
+      const conversationsWithReplies = [...conversationsWithOutbound].filter(id =>
+        conversationsWithInbound.has(id)
+      ).length;
+
+      const responseRate = conversationsWithOutbound.size > 0
+        ? ((conversationsWithReplies / conversationsWithOutbound.size) * 100).toFixed(1)
+        : '0';
 
       return { totalSent: outbound, totalReceived: inbound, responseRate };
     },
   });
 
   const { data: activeCampaigns } = useQuery({
-    queryKey: ['analytics', 'active-campaigns'],
+    queryKey: ['analytics', 'active-campaigns', dateRange, customDateRange.from, customDateRange.to],
     queryFn: async () => {
+      const { start, end } = getDateRange();
+
       const { count, error } = await supabase
         .from('campaign_enrollments')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .gte('created_at', start)
+        .lte('created_at', end);
 
       if (error) throw error;
       return count || 0;
@@ -122,8 +141,10 @@ export default function Analytics() {
   });
 
   const { data: pipelineFunnel } = useQuery({
-    queryKey: ['analytics', 'pipeline-funnel'],
+    queryKey: ['analytics', 'pipeline-funnel', dateRange, customDateRange.from, customDateRange.to],
     queryFn: async () => {
+      const { start, end } = getDateRange();
+
       // Fetch all pipeline stages
       const { data: stages, error: stagesError } = await supabase
         .from('pipeline_stages')
@@ -132,10 +153,12 @@ export default function Analytics() {
 
       if (stagesError) throw stagesError;
 
-      // Fetch all leads grouped by stage
+      // Fetch leads created within date range
       const { data: leads, error: leadsError } = await supabase
         .from('leads')
-        .select('pipeline_stage_id');
+        .select('pipeline_stage_id')
+        .gte('created_at', start)
+        .lte('created_at', end);
 
       if (leadsError) throw leadsError;
 
