@@ -14,6 +14,8 @@ import {
   Line,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -264,15 +266,50 @@ export default function Analytics() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={volumeData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" fontSize={12} />
-                <YAxis fontSize={12} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="inbound" stroke="#00C851" name="Inbound" />
-                <Line type="monotone" dataKey="outbound" stroke="#E74C3C" name="Outbound" />
-              </LineChart>
+              <AreaChart data={volumeData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorInbound" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0.1}/>
+                  </linearGradient>
+                  <linearGradient id="colorOutbound" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F39C12" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#F39C12" stopOpacity={0.1}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis dataKey="date" fontSize={12} stroke="#6B7280" />
+                <YAxis fontSize={12} stroke="#6B7280" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'white',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                  }}
+                />
+                <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                <Area
+                  type="monotone"
+                  dataKey="inbound"
+                  stroke="#10B981"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorInbound)"
+                  name="Inbound"
+                  activeDot={{ r: 6 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="outbound"
+                  stroke="#F39C12"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorOutbound)"
+                  name="Outbound"
+                  activeDot={{ r: 6 }}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
