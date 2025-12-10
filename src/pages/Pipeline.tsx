@@ -16,6 +16,20 @@ import { Search, Phone, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
+// Predefined color options for pipeline stages
+const STAGE_COLORS = [
+  { name: 'Blue', value: '#3B82F6' },
+  { name: 'Green', value: '#10B981' },
+  { name: 'Red', value: '#EF4444' },
+  { name: 'Orange', value: '#F97316' },
+  { name: 'Purple', value: '#A855F7' },
+  { name: 'Pink', value: '#EC4899' },
+  { name: 'Yellow', value: '#EAB308' },
+  { name: 'Teal', value: '#14B8A6' },
+  { name: 'Indigo', value: '#6366F1' },
+  { name: 'Gray', value: '#6B7280' },
+];
+
 export default function Pipeline() {
   const [search, setSearch] = useState('');
   const [selectedLead, setSelectedLead] = useState<any>(null);
@@ -25,6 +39,7 @@ export default function Pipeline() {
   const [newStageName, setNewStageName] = useState('');
   const [newStageColor, setNewStageColor] = useState('#3B82F6');
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
+  const [stageToDelete, setStageToDelete] = useState<{ id: string; name: string } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor));
@@ -208,9 +223,11 @@ export default function Pipeline() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      setStageToDelete(null);
       toast({ title: 'Pipeline stage deleted successfully!' });
     },
     onError: (error: any) => {
+      setStageToDelete(null);
       toast({
         title: 'Failed to delete stage',
         description: error.message,
@@ -353,9 +370,7 @@ export default function Pipeline() {
                             className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (window.confirm(`Are you sure you want to delete "${stage.name}" stage?`)) {
-                                deleteStageMutation.mutate(stage.id);
-                              }
+                              setStageToDelete({ id: stage.id, name: stage.name });
                             }}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -497,21 +512,32 @@ export default function Pipeline() {
 
             <div>
               <Label htmlFor="stage-color">Stage Color</Label>
-              <div className="flex gap-2 mt-2">
-                <Input
-                  id="stage-color"
-                  type="color"
-                  value={newStageColor}
-                  onChange={(e) => setNewStageColor(e.target.value)}
-                  className="w-20 h-10"
-                />
-                <Input
-                  value={newStageColor}
-                  onChange={(e) => setNewStageColor(e.target.value)}
-                  placeholder="#3B82F6"
-                  className="flex-1"
-                />
-              </div>
+              <Select value={newStageColor} onValueChange={setNewStageColor}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-4 h-4 rounded border border-border"
+                        style={{ backgroundColor: newStageColor }}
+                      />
+                      <span>{STAGE_COLORS.find(c => c.value === newStageColor)?.name || 'Select color'}</span>
+                    </div>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGE_COLORS.map((color) => (
+                    <SelectItem key={color.value} value={color.value}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-4 rounded border border-border"
+                          style={{ backgroundColor: color.value }}
+                        />
+                        <span>{color.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground mt-1">
                 Choose a color for the stage badge
               </p>
@@ -526,6 +552,40 @@ export default function Pipeline() {
                 disabled={createStageMutation.isPending}
               >
                 {createStageMutation.isPending ? 'Creating...' : 'Create Stage'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Stage Confirmation Dialog */}
+      <Dialog open={!!stageToDelete} onOpenChange={() => setStageToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Pipeline Stage</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete the <span className="font-semibold text-foreground">"{stageToDelete?.name}"</span> stage?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              This action cannot be undone. Make sure to move all leads from this stage before deleting.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setStageToDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (stageToDelete) {
+                    deleteStageMutation.mutate(stageToDelete.id);
+                  }
+                }}
+                disabled={deleteStageMutation.isPending}
+              >
+                {deleteStageMutation.isPending ? 'Deleting...' : 'Delete Stage'}
               </Button>
             </div>
           </div>
