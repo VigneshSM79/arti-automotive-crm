@@ -171,6 +171,11 @@ const Leads = () => {
   const [leadToDelete, setLeadToDelete] = useState<string | null>(null); // Single lead ID
   const [leadsToDeleteBulk, setLeadsToDeleteBulk] = useState<string[]>([]); // Multiple lead IDs
 
+  // Send first message confirmation state
+  const [isSendFirstMessageDialogOpen, setIsSendFirstMessageDialogOpen] = useState(false);
+  const [sendMessageLeadCount, setSendMessageLeadCount] = useState(0);
+  const [sendMessageEstimatedCost, setSendMessageEstimatedCost] = useState('0.00');
+
   // Load column visibility from localStorage or default to showing email, status, and tags
   const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
     const saved = localStorage.getItem('leads-visible-columns');
@@ -904,9 +909,16 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
 
     const estimatedCost = (selectedArray.length * 0.0075).toFixed(2);
 
-    if (confirm(`Send Day 1 SMS to ${selectedArray.length} lead${selectedArray.length > 1 ? 's' : ''}?\n\nEstimated cost: $${estimatedCost}`)) {
-      sendFirstMessageMutation.mutate(selectedArray);
-    }
+    // Store values in state and open dialog
+    setSendMessageLeadCount(selectedArray.length);
+    setSendMessageEstimatedCost(estimatedCost);
+    setIsSendFirstMessageDialogOpen(true);
+  };
+
+  const handleConfirmSendFirstMessage = () => {
+    const selectedArray = Array.from(selectedLeads);
+    sendFirstMessageMutation.mutate(selectedArray);
+    setIsSendFirstMessageDialogOpen(false);
   };
 
   const handleCsvImport = () => {
@@ -1923,6 +1935,43 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
         isDeleting={deleteLeadsMutation.isPending}
         onConfirm={handleConfirmDelete}
       />
+
+      {/* Send First Message Confirmation Dialog */}
+      <Dialog open={isSendFirstMessageDialogOpen} onOpenChange={setIsSendFirstMessageDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Day 1 SMS</DialogTitle>
+            <DialogDescription>
+              Confirm sending the initial message to selected leads
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                You are about to send Day 1 SMS to <span className="font-semibold text-foreground">{sendMessageLeadCount}</span> lead{sendMessageLeadCount > 1 ? 's' : ''}.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Estimated cost: <span className="font-semibold text-foreground">${sendMessageEstimatedCost}</span>
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsSendFirstMessageDialogOpen(false)}
+              disabled={sendFirstMessageMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmSendFirstMessage}
+              disabled={sendFirstMessageMutation.isPending}
+            >
+              {sendFirstMessageMutation.isPending ? 'Sending...' : 'Send SMS'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
