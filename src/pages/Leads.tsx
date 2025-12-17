@@ -635,13 +635,16 @@ const Leads = () => {
       let successCount = 0;
       let duplicateCount = 0;
       let errorCount = 0;
+      const insertedLeadIds: string[] = [];
 
       // Insert leads one by one to handle duplicates gracefully
       for (const lead of leadsToInsert) {
         try {
-          const { error } = await supabase
+          const { data: insertedData, error } = await supabase
             .from('leads')
-            .insert([lead]);
+            .insert([lead])
+            .select('id')
+            .single();
 
           if (error) {
             // Check if it's a duplicate phone error (UNIQUE constraint violation)
@@ -654,6 +657,9 @@ const Leads = () => {
             }
           } else {
             successCount++;
+            if (insertedData?.id) {
+              insertedLeadIds.push(insertedData.id);
+            }
           }
         } catch (err) {
           errorCount++;
@@ -661,10 +667,30 @@ const Leads = () => {
         }
       }
 
-      return { successCount, duplicateCount, errorCount, total: leadsToInsert.length };
+      return { successCount, duplicateCount, errorCount, total: leadsToInsert.length, insertedLeadIds };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
+
+      // Trigger webhooks for tagged leads
+      if (selectedImportTag && result.insertedLeadIds.length > 0) {
+        // Fetch the inserted leads with full data
+        const { data: insertedLeads } = await supabase
+          .from('leads')
+          .select('id, first_name, last_name, phone, tags')
+          .in('id', result.insertedLeadIds);
+
+        if (insertedLeads && insertedLeads.length > 0) {
+          // Trigger webhook for each lead with the tag
+          let webhooksTriggered = 0;
+          for (const lead of insertedLeads) {
+            const success = await triggerCampaignWebhook(lead.id, lead, selectedImportTag);
+            if (success) webhooksTriggered++;
+          }
+
+          console.log(`Triggered ${webhooksTriggered} webhooks for tag: ${selectedImportTag}`);
+        }
+      }
 
       // Build success message
       const messages = [];
@@ -681,7 +707,8 @@ const Leads = () => {
       const summaryMessage = messages.join(', ');
 
       if (result.successCount > 0) {
-        toast.success(`CSV Import Complete: ${summaryMessage}`);
+        const tagMessage = selectedImportTag ? ` Campaign "${selectedImportTag}" triggered.` : '';
+        toast.success(`CSV Import Complete: ${summaryMessage}.${tagMessage}`);
       } else if (result.duplicateCount > 0 && result.errorCount === 0) {
         toast.info(`All leads were duplicates (${result.duplicateCount} skipped)`);
       } else {

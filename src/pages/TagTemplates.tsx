@@ -107,7 +107,7 @@ export default function TagTemplates() {
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ['tag-campaigns'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error} = await supabase
         .from('tag_campaigns')
         .select(`
           id,
@@ -534,10 +534,17 @@ export default function TagTemplates() {
               Follow-up sequences triggered when leads are tagged with specific objections or interests
             </p>
           </div>
-          <Button onClick={() => setCreateModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add New Tag
-          </Button>
+          {isAdmin ? (
+            <Button onClick={() => setCreateModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add New Tag
+            </Button>
+          ) : (
+            <Button disabled>
+              <Lock className="h-4 w-4 mr-2" />
+              Admin Only
+            </Button>
+          )}
         </div>
 
         {isLoading ? (
@@ -556,7 +563,7 @@ export default function TagTemplates() {
                       <CardTitle className="text-base">{campaign.name}</CardTitle>
                       <Badge variant="secondary">{campaign.tag}</Badge>
                     </div>
-                    {campaign.user_id !== null && (
+                    {isAdmin && campaign.user_id !== null && (
                       <Button
                         variant="ghost"
                         size="icon"
