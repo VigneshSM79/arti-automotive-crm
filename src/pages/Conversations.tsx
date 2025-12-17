@@ -94,6 +94,23 @@ export default function Conversations() {
     enabled: !!selectedConversationId,
   });
 
+  const { data: calls } = useQuery({
+    queryKey: ['calls', selectedConversationId],
+    queryFn: async () => {
+      if (!selectedConversationId) return [];
+
+      const { data, error } = await supabase
+        .from('calls')
+        .select('*, users(full_name)')
+        .eq('conversation_id', selectedConversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!selectedConversationId,
+  });
+
   // Manual AI takeover mutation
   const takeoverMutation = useMutation({
     mutationFn: async (conversationId: string) => {
@@ -576,46 +593,59 @@ export default function Conversations() {
                       </div>
                     ))}
                   </div>
-                ) : messages && messages.length > 0 ? (
-                  messages.map((message: any, index: number) => {
-                    const isOutbound = message.direction === 'outbound';
-                    const isLast = index === messages.length - 1;
+                ) : (() => {
+                  const timeline = [
+                    ...(messages || []).map((m: any) => ({ ...m, type: 'message' })),
+                    ...(calls || []).map((c: any) => ({ ...c, type: 'call' }))
+                  ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex flex-col ${isOutbound ? 'items-end' : 'items-start'} group`}
-                      >
-                        <div
-                          className={`
-                            max-w-[75%] px-5 py-3 shadow-sm relative text-sm leading-relaxed
-                            ${isOutbound
-                              ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm'
-                              : 'bg-white dark:bg-zinc-800 text-foreground border border-border/50 rounded-2xl rounded-tl-sm'
-                            }
-                          `}
-                        >
-                          {message.content}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1 px-1">
-                          <span className="text-[10px] text-muted-foreground/70">
-                            {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
-                          </span>
-                          {message.is_ai_generated && (
-                            <Badge variant="outline" className="text-[10px] h-4 px-1 py-0 border-primary/20 text-primary">
-                              <Bot className="h-3 w-3" />
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50">
-                    <MessageSquare className="h-12 w-12 mb-2" />
-                    <p>No messages yet</p>
-                  </div>
-                )}
+                  return timeline.length > 0 ? (
+                    timeline.map((item: any) => {
+                      if (item.type === 'message') {
+                        const isOutbound = item.direction === 'outbound';
+                        return (
+                          <div key={`msg-${item.id}`} className={`flex flex-col ${isOutbound ? 'items-end' : 'items-start'} group`}>
+                            <div className={`max-w-[75%] px-5 py-3 shadow-sm relative text-sm leading-relaxed ${isOutbound ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-white dark:bg-zinc-800 text-foreground border border-border/50 rounded-2xl rounded-tl-sm'}`}>
+                              {item.content}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 px-1">
+                              <span className="text-[10px] text-muted-foreground/70">
+                                {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                              </span>
+                              {item.is_ai_generated && (
+                                <Badge variant="outline" className="text-[10px] h-4 px-1 py-0 border-primary/20 text-primary">
+                                  <Bot className="h-3 w-3" />
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        const duration = item.duration ? `${Math.floor(item.duration / 60)}:${(item.duration % 60).toString().padStart(2, '0')}` : 'In progress';
+                        return (
+                          <div key={`call-${item.id}`} className="flex justify-center">
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2 text-sm">
+                              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                                <Phone className="h-4 w-4" />
+                                <span className="font-medium">Call {item.status === 'completed' ? 'completed' : item.status}</span>
+                                {item.duration && <span>• {duration}</span>}
+                              </div>
+                              <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                                {item.users?.full_name && ` by ${item.users.full_name}`}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50">
+                      <MessageSquare className="h-12 w-12 mb-2" />
+                      <p>No messages yet</p>
+                    </div>
+                  );
+                })()}
                 <div ref={messagesEndRef} />
               </div>
 
