@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,8 @@ import { User, Bell, Phone, Mail } from 'lucide-react';
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [receiveSmsNotifications, setReceiveSmsNotifications] = useState(true);
   const { data: userRole } = useUserRole();
@@ -53,6 +56,29 @@ export default function Settings() {
       setReceiveSmsNotifications(userProfile.receive_sms_notifications ?? true);
     }
   }, [userProfile]);
+
+  // Handle highlight parameter from navigation
+  useEffect(() => {
+    const highlight = searchParams.get('highlight');
+    if (highlight === 'phone' && phoneInputRef.current) {
+      // Scroll to phone input with smooth animation
+      setTimeout(() => {
+        phoneInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        phoneInputRef.current?.focus();
+
+        // Add highlight animation by temporarily adding a class
+        phoneInputRef.current?.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+
+        // Remove highlight after 2 seconds
+        setTimeout(() => {
+          phoneInputRef.current?.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+        }, 2000);
+
+        // Clear the query parameter
+        setSearchParams({});
+      }, 100);
+    }
+  }, [searchParams, setSearchParams]);
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
@@ -182,12 +208,13 @@ export default function Settings() {
               Phone Number
             </Label>
             <Input
+              ref={phoneInputRef}
               id="phone-number"
               type="tel"
               placeholder="+1234567890"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              className="max-w-md"
+              className="max-w-md transition-all duration-300"
             />
             <p className="text-xs text-muted-foreground">
               Enter your phone number in E.164 format (e.g., +1234567890)

@@ -8,11 +8,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Send, Bot, AlertCircle, MessageSquare, User, Loader2 } from 'lucide-react';
+import { Search, Send, Bot, AlertCircle, MessageSquare, User, Loader2, Phone } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { useUserRole } from '@/hooks/useUserRole';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function Conversations() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -20,9 +28,11 @@ export default function Conversations() {
   const [search, setSearch] = useState('');
   const [messageText, setMessageText] = useState('');
   const [handoffFilter, setHandoffFilter] = useState<'all' | 'handoff' | 'ai'>('all');
+  const [showPhoneNumberDialog, setShowPhoneNumberDialog] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { data: userRole } = useUserRole();
 
   const { data: conversations, isLoading: loadingConversations } = useQuery({
@@ -187,6 +197,72 @@ export default function Conversations() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
+  // Initiate voice call via n8n webhook
+  const initiateCallMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedConversationId) throw new Error('No conversation selected');
+
+      const conversation = conversations?.find(c => c.id === selectedConversationId);
+      if (!conversation) throw new Error('Conversation not found');
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const lead = Array.isArray(conversation.leads) ? conversation.leads[0] : conversation.leads;
+      if (!lead?.phone) throw new Error('Lead phone number not found');
+
+      // Get agent's phone number from users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('phone_number')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) throw userError;
+      if (!userData?.phone_number) throw new Error('Your phone number is not set. Please update it in Settings.');
+
+      // Call n8n webhook to initiate call
+      const response = await fetch(import.meta.env.VITE_N8N_INITIATE_CALL_WEBHOOK, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          lead_id: lead.id,
+          agent_phone: userData.phone_number,
+          lead_phone: lead.phone,
+          lead_name: `${lead.first_name} ${lead.last_name || ''}`.trim(),
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to initiate call');
+      }
+
+      const data = await response.json();
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: 'Call initiated!',
+        description: 'Your phone will ring shortly. Answer to connect to the lead.',
+      });
+    },
+    onError: (error: any) => {
+      // Check if error is about missing phone number
+      if (error.message?.includes('phone number is not set')) {
+        setShowPhoneNumberDialog(true);
+      } else {
+        toast({
+          title: 'Failed to initiate call',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
     },
   });
 
@@ -465,6 +541,26 @@ export default function Conversations() {
                       )}
                     </Button>
                   )}
+
+                  {/* Call Button */}
+                  <Button
+                    onClick={() => initiateCallMutation.mutate()}
+                    disabled={initiateCallMutation.isPending}
+                    size="sm"
+                    className="text-xs bg-blue-500 hover:bg-blue-600 text-white border-blue-500 hover:border-blue-600"
+                  >
+                    {initiateCallMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        Calling...
+                      </>
+                    ) : (
+                      <>
+                        <Phone className="h-3 w-3 mr-1" />
+                        Call
+                      </>
+                    )}
+                  </Button>
                 </div>
               </div>
 
@@ -580,6 +676,45 @@ export default function Conversations() {
           )}
         </div>
       </div>
+
+      {/* Phone Number Required Dialog */}
+      <Dialog open={showPhoneNumberDialog} onOpenChange={setShowPhoneNumberDialog}>
+        <DialogContent className="sm:max-w-[500px] bg-white dark:bg-gray-900">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Phone className="h-5 w-5 text-blue-500" />
+              Phone Number Required
+            </DialogTitle>
+            <DialogDescription className="text-base pt-2 space-y-3">
+              <p>
+                To call leads from the dashboard, you need to add your phone number to your profile.
+              </p>
+              <p className="text-sm">
+                <strong>How it works:</strong> When you click "Call", your phone will ring first.
+                After you answer, we'll connect you to the lead.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowPhoneNumberDialog(false)}
+              className="border-gray-300"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setShowPhoneNumberDialog(false);
+                navigate('/settings?highlight=phone');
+              }}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
+              Go to Settings →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
