@@ -232,6 +232,7 @@ export default function Conversations() {
         },
         body: JSON.stringify({
           lead_id: lead.id,
+          agent_id: user.id,
           agent_phone: userData.phone_number,
           lead_phone: lead.phone,
           lead_name: `${lead.first_name} ${lead.last_name || ''}`.trim(),
