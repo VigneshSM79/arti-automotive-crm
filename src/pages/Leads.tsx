@@ -159,6 +159,7 @@ const Leads = () => {
   const [csvValidationResults, setCsvValidationResults] = useState<ValidationResult[]>([]);
   const [csvImportStep, setCsvImportStep] = useState(1);
   const [importBatchName, setImportBatchName] = useState('');
+  const [selectedImportTag, setSelectedImportTag] = useState<string>('');
   const [isProcessingCsv, setIsProcessingCsv] = useState(false);
 
   // Duplicate phone detection state
@@ -580,7 +581,9 @@ const Leads = () => {
           lead_source: 'csv_upload',
           status: 'new',
           pipeline_stage_id: pipelineStages[0]?.id || null,
-          tags: [],
+          status: 'new',
+          pipeline_stage_id: pipelineStages[0]?.id || null,
+          tags: selectedImportTag ? [selectedImportTag] : [],
         }));
 
       let successCount = 0;
@@ -817,6 +820,7 @@ const Leads = () => {
     setCsvValidationResults([]);
     setCsvImportStep(1);
     setImportBatchName('');
+    setSelectedImportTag('');
   };
 
   const handleOpenCsvWizard = () => {
@@ -1690,10 +1694,26 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   <div className="flex gap-4">
                     <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${csvImportStep >= 3 ? 'bg-primary text-white' : 'bg-slate-700 text-slate-400'
                       }`}>
-                      <span className="font-semibold">3</span>
+                      {csvImportStep > 3 ? <Check className="h-5 w-5" /> : <span className="font-semibold">3</span>}
                     </div>
                     <div>
                       <h3 className={`font-semibold ${csvImportStep === 3 ? 'text-white' : 'text-slate-400'}`}>
+                        Select Tag
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Assign a tag to this batch
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="flex gap-4">
+                    <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${csvImportStep >= 4 ? 'bg-primary text-white' : 'bg-slate-700 text-slate-400'
+                      }`}>
+                      <span className="font-semibold">4</span>
+                    </div>
+                    <div>
+                      <h3 className={`font-semibold ${csvImportStep === 4 ? 'text-white' : 'text-slate-400'}`}>
                         Review & Import
                       </h3>
                       <p className="text-xs text-slate-400 mt-1">
@@ -1711,12 +1731,14 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   <DialogTitle className="text-xl">
                     {csvImportStep === 1 && 'Import Contacts'}
                     {csvImportStep === 2 && 'Contact Details'}
-                    {csvImportStep === 3 && 'Review & Import'}
+                    {csvImportStep === 3 && 'Select Tag'}
+                    {csvImportStep === 4 && 'Review & Import'}
                   </DialogTitle>
                   <DialogDescription className="mt-1">
                     {csvImportStep === 1 && 'Upload a CSV file with contact information'}
                     {csvImportStep === 2 && 'Name your contact batch for easy identification'}
-                    {csvImportStep === 3 && 'Review contacts and import to your database'}
+                    {csvImportStep === 3 && 'Assign a tag to all leads in this import'}
+                    {csvImportStep === 4 && 'Review contacts and import to your database'}
                   </DialogDescription>
                 </div>
 
@@ -1844,8 +1866,44 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                     </div>
                   )}
 
-                  {/* Step 3: Review & Import */}
+                  {/* Step 3: Select Tag */}
                   {csvImportStep === 3 && (
+                    <div className="max-w-2xl mx-auto space-y-6 py-8">
+                      <div className="space-y-4">
+                        <Label htmlFor="import-tag" className="text-base">
+                          Assign Tag <span className="text-muted-foreground text-sm">(Optional)</span>
+                        </Label>
+                        <Select
+                          value={selectedImportTag}
+                          onValueChange={setSelectedImportTag}
+                        >
+                          <SelectTrigger className="h-12 text-lg">
+                            <SelectValue placeholder="Select a tag to apply..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {tagCampaigns.map((campaign) => (
+                              <SelectItem key={campaign.id} value={campaign.tag}>
+                                {campaign.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-sm text-muted-foreground">
+                          This tag will be applied to all leads in this import batch.
+                          Useful for triggering specific campaigns or grouping leads.
+                        </p>
+                        {selectedImportTag && (
+                          <div className="flex items-center gap-2 mt-2 text-sm text-green-600">
+                            <CheckCircle className="h-4 w-4" />
+                            Tag "{tagCampaigns.find(c => c.tag === selectedImportTag)?.name}" selected
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: Review & Import */}
+                  {csvImportStep === 4 && (
                     <div className="space-y-6">
                       <Alert>
                         <CheckCircle className="h-4 w-4" />
@@ -1875,6 +1933,17 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                           <div className="text-lg font-semibold">{importBatchName}</div>
                         </div>
                       )}
+
+                      {selectedImportTag && (
+                        <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                          <div className="text-sm text-blue-600 mb-1">Tag to Apply</div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
+                              {tagCampaigns.find(c => c.tag === selectedImportTag)?.name || selectedImportTag}
+                            </Badge>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1890,7 +1959,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                         Back
                       </Button>
                     )}
-                    {csvImportStep < 3 ? (
+                    {csvImportStep < 4 ? (
                       <Button
                         onClick={() => setCsvImportStep(csvImportStep + 1)}
                         disabled={csvImportStep === 1 && validLeadsCount === 0}
