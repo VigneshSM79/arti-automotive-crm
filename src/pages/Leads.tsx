@@ -76,6 +76,7 @@ const OPTIONAL_COLUMNS = [
   { key: 'notes', label: 'Notes' },
   { key: 'lead_source', label: 'Lead Source' },
   { key: 'status', label: 'Status' },
+  { key: 'import_batch', label: 'Batch' },
   { key: 'created_at', label: 'Created At' },
   { key: 'updated_at', label: 'Updated At' },
 ];
@@ -94,6 +95,7 @@ type Lead = {
   notes: string | null;
   lead_source: string | null;
   status: string | null;
+  import_batch: string | null;
   created_at: string;
   updated_at: string;
   pipeline_stage_id: string;
@@ -145,6 +147,8 @@ const Leads = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [batchFilter, setBatchFilter] = useState<string | null>(null);
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<keyof Lead>('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -226,9 +230,45 @@ const Leads = () => {
     },
   });
 
+  // Fetch batch statistics (unique batches with lead counts)
+  const { data: batchStats = [] } = useQuery({
+    queryKey: ['batch-stats', user?.id, isAdmin],
+    queryFn: async () => {
+      if (!user?.id) return [];
+
+      let query = supabase
+        .from('leads')
+        .select('import_batch', { count: 'exact' });
+
+      // Only filter by user_id if NOT admin
+      if (!isAdmin) {
+        query = query.eq('user_id', user.id);
+      }
+
+      // Only get leads with batch names
+      query = query.not('import_batch', 'is', null);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      // Group by batch and count
+      const batchCounts = (data || []).reduce((acc: Record<string, number>, lead: any) => {
+        const batch = lead.import_batch;
+        acc[batch] = (acc[batch] || 0) + 1;
+        return acc;
+      }, {});
+
+      // Convert to array and sort by name
+      return Object.entries(batchCounts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    enabled: !!user?.id,
+  });
+
   // Fetch leads
   const { data: leadsData, isLoading } = useQuery({
-    queryKey: ['leads', user?.id, searchQuery, sortColumn, sortDirection, isAdmin],
+    queryKey: ['leads', user?.id, searchQuery, sortColumn, sortDirection, isAdmin, batchFilter],
     queryFn: async () => {
       if (!user?.id) return { leads: [], total: 0 };
 
@@ -244,6 +284,11 @@ const Leads = () => {
       // Apply search filter
       if (searchQuery) {
         query = query.or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`);
+      }
+
+      // Apply batch filter
+      if (batchFilter) {
+        query = query.eq('import_batch', batchFilter);
       }
 
       // Apply sorting
@@ -584,6 +629,7 @@ const Leads = () => {
           status: 'new',
           pipeline_stage_id: pipelineStages[0]?.id || null,
           tags: selectedImportTag ? [selectedImportTag] : [],
+          import_batch: importBatchName || null,
         }));
 
       let successCount = 0;
@@ -988,12 +1034,46 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
             <Upload className="h-4 w-4 mr-2" />
             {isProcessingCsv ? 'Processing...' : 'Add Bulk Contacts'}
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsBatchDialogOpen(true)}
+            className="relative"
+          >
+            <FileText className="h-4 w-4 mr-2" />
+            View All Batches
+            {batchStats.length > 0 && (
+              <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-xs">
+                {batchStats.length}
+              </Badge>
+            )}
+          </Button>
           <Button variant="outline" onClick={() => handleOpenDialog()}>
             <Plus className="h-4 w-4 mr-2" />
             Add Contact
           </Button>
         </div>
       </div>
+
+      {/* Batch Filter Indicator */}
+      {batchFilter && (
+        <Alert className="border-blue-500 bg-blue-50">
+          <AlertCircle className="h-4 w-4 text-blue-600" />
+          <AlertTitle className="text-blue-600">
+            Filtered by Batch: {batchFilter}
+          </AlertTitle>
+          <AlertDescription className="flex items-center gap-2 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setBatchFilter(null)}
+              size="sm"
+              className="bg-white"
+            >
+              <X className="h-4 w-4 mr-2" />
+              Clear Filter
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Bulk Actions Bar */}
       {selectedLeads.size > 0 && (
@@ -1130,6 +1210,7 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
               {visibleColumns.includes('lead_source') && <TableHead>Lead Source</TableHead>}
               {visibleColumns.includes('tags') && <TableHead>Tags</TableHead>}
               {visibleColumns.includes('notes') && <TableHead>Notes</TableHead>}
+              {visibleColumns.includes('import_batch') && <TableHead>Batch</TableHead>}
               {visibleColumns.includes('created_at') && (
                 <TableHead className="cursor-pointer" onClick={() => handleSort('created_at')}>
                   <div className="flex items-center">
@@ -1211,6 +1292,15 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
                   )}
                   {visibleColumns.includes('notes') && (
                     <TableCell className="max-w-xs truncate">{lead.notes || '-'}</TableCell>
+                  )}
+                  {visibleColumns.includes('import_batch') && (
+                    <TableCell>
+                      {lead.import_batch ? (
+                        <Badge variant="outline" className="text-xs">
+                          {lead.import_batch}
+                        </Badge>
+                      ) : '-'}
+                    </TableCell>
                   )}
                   {visibleColumns.includes('created_at') && (
                     <TableCell>{format(new Date(lead.created_at), 'MMM d, yyyy')}</TableCell>
@@ -2038,6 +2128,74 @@ Michael,Williams,6043334444,michael.w@outlook.com,789 Pine Rd,Burnaby,BC,V5H 3C3
             >
               {sendFirstMessageMutation.isPending ? 'Sending...' : 'Send SMS'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Selection Dialog */}
+      <Dialog open={isBatchDialogOpen} onOpenChange={setIsBatchDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>View All Batches</DialogTitle>
+            <DialogDescription>
+              Select a batch to filter leads by import batch name
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {batchStats.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No batches found</p>
+                <p className="text-sm">Import leads with a batch name to see them here</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {batchStats.map((batch: any) => (
+                  <div
+                    key={batch.name}
+                    onClick={() => {
+                      setBatchFilter(batch.name);
+                      setIsBatchDialogOpen(false);
+                      setCurrentPage(1);
+                    }}
+                    className={cn(
+                      "p-4 border rounded-lg cursor-pointer transition-all hover:bg-accent",
+                      batchFilter === batch.name && "bg-primary/5 border-primary"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{batch.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {batch.count} lead{batch.count > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      {batchFilter === batch.name && (
+                        <Badge variant="default">Active Filter</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBatchDialogOpen(false)}>
+              Close
+            </Button>
+            {batchFilter && (
+              <Button
+                onClick={() => {
+                  setBatchFilter(null);
+                  setIsBatchDialogOpen(false);
+                }}
+              >
+                Clear Filter
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
