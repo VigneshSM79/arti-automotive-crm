@@ -7,11 +7,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Lock, Pencil } from 'lucide-react';
+import { Plus, Trash2, Lock, Pencil, AlertTriangle } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
@@ -27,6 +37,8 @@ export default function TagTemplates() {
   const isAdmin = userRole?.isAdmin || false;
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editInitialMessageOpen, setEditInitialMessageOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [campaignToDelete, setCampaignToDelete] = useState<{ id: string; name: string } | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [tagName, setTagName] = useState('');
@@ -147,6 +159,8 @@ export default function TagTemplates() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tag-campaigns'] });
+      setDeleteDialogOpen(false);
+      setCampaignToDelete(null);
       toast({ title: 'Campaign deleted' });
     },
   });
@@ -459,6 +473,17 @@ export default function TagTemplates() {
     setCreateModalOpen(true);
   };
 
+  const handleDeleteClick = (campaign: any) => {
+    setCampaignToDelete({ id: campaign.id, name: campaign.name });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (campaignToDelete) {
+      deleteCampaignMutation.mutate(campaignToDelete.id);
+    }
+  };
+
   const handleCreate = () => {
     // Validate Tag Name and Identifier
     if (!tagName || !tagIdentifier) {
@@ -655,7 +680,7 @@ export default function TagTemplates() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => deleteCampaignMutation.mutate(campaign.id)}
+                            onClick={() => handleDeleteClick(campaign)}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -965,6 +990,51 @@ export default function TagTemplates() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-6 w-6 text-destructive" />
+              <AlertDialogTitle className="text-xl">
+                Delete Template?
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-base space-y-2">
+              <p>
+                Are you sure you want to delete the template <strong>"{campaignToDelete?.name}"</strong>?
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This will permanently remove:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                <li>The tag campaign template</li>
+                <li>All associated message sequences</li>
+              </ul>
+              <p className="text-destructive font-semibold mt-3">
+                ⚠️ This action cannot be undone!
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteCampaignMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDelete();
+              }}
+              disabled={deleteCampaignMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleteCampaignMutation.isPending ? 'Deleting...' : 'Delete Template'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -240,10 +240,8 @@ const Leads = () => {
         .from('leads')
         .select('import_batch', { count: 'exact' });
 
-      // Only filter by user_id if NOT admin
-      if (!isAdmin) {
-        query = query.eq('user_id', user.id);
-      }
+      // All users can see all batches (RLS handles permissions)
+      // No user_id filter needed - everyone sees all data
 
       // Only get leads with batch names
       query = query.not('import_batch', 'is', null);
@@ -276,10 +274,8 @@ const Leads = () => {
         .from('leads')
         .select('*, pipeline_stages(name, color)', { count: 'exact' });
 
-      // Only filter by user_id if NOT admin
-      if (!isAdmin) {
-        query = query.eq('user_id', user.id);
-      }
+      // All users can see all leads (RLS handles permissions)
+      // No user_id filter needed - everyone sees all data
 
       // Apply search filter
       if (searchQuery) {
