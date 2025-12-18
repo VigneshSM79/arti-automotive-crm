@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Lock } from 'lucide-react';
+import { Plus, Trash2, Lock, Pencil } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
@@ -27,7 +27,8 @@ export default function TagTemplates() {
   const isAdmin = userRole?.isAdmin || false;
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editInitialMessageOpen, setEditInitialMessageOpen] = useState(false);
-  const [step, setStep] = useState(1);
+  const [editMode, setEditMode] = useState(false);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [tagName, setTagName] = useState('');
   const [tagIdentifier, setTagIdentifier] = useState('');
   const [messageCount, setMessageCount] = useState('4');
@@ -107,7 +108,7 @@ export default function TagTemplates() {
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ['tag-campaigns'],
     queryFn: async () => {
-      const { data, error} = await supabase
+      const { data, error } = await supabase
         .from('tag_campaigns')
         .select(`
           id,
@@ -198,6 +199,59 @@ export default function TagTemplates() {
     },
   });
 
+  // Update campaign mutation
+  const updateCampaignMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCampaignId) throw new Error('No campaign selected');
+
+      // Update campaign
+      const { error: campaignError } = await supabase
+        .from('tag_campaigns')
+        .update({
+          tag: tagIdentifier,
+          name: tagName,
+        })
+        .eq('id', editingCampaignId);
+
+      if (campaignError) throw campaignError;
+
+      // Delete old messages
+      const { error: deleteError } = await supabase
+        .from('tag_campaign_messages')
+        .delete()
+        .eq('campaign_id', editingCampaignId);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new messages
+      const messageInserts = messages.map((msg, idx) => ({
+        campaign_id: editingCampaignId,
+        day_number: msg.day,
+        sequence_order: idx + 1,
+        message_template: msg.content,
+      }));
+
+      const { error: messagesError } = await supabase
+        .from('tag_campaign_messages')
+        .insert(messageInserts);
+
+      if (messagesError) throw messagesError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tag-campaigns'] });
+      setCreateModalOpen(false);
+      resetForm();
+      toast({ title: 'Campaign updated successfully' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update campaign',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
   // Save Initial Message mutation
   const saveInitialMessageMutation = useMutation({
     mutationFn: async () => {
@@ -259,7 +313,8 @@ export default function TagTemplates() {
   });
 
   const resetForm = () => {
-    setStep(1);
+    setEditMode(false);
+    setEditingCampaignId(null);
     setTagName('');
     setTagIdentifier('');
     setMessageCount('4');
@@ -384,19 +439,38 @@ export default function TagTemplates() {
     saveInitialMessageMutation.mutate();
   };
 
-  const handleNext = () => {
+
+
+  const handleEdit = (campaign: any) => {
+    setEditMode(true);
+    setEditingCampaignId(campaign.id);
+    setTagName(campaign.name);
+    setTagIdentifier(campaign.tag);
+
+    const sortedMessages = [...(campaign.tag_campaign_messages || [])]
+      .sort((a: any, b: any) => a.sequence_order - b.sequence_order);
+
+    setMessageCount(sortedMessages.length.toString());
+    setMessages(sortedMessages.map((msg: any) => ({
+      day: msg.day_number,
+      content: msg.message_template,
+    })));
+
+    setCreateModalOpen(true);
+  };
+
+  const handleCreate = () => {
+    // Validate Tag Name and Identifier
     if (!tagName || !tagIdentifier) {
       toast({
         title: 'Missing information',
-        description: 'Please fill in all fields',
+        description: 'Please fill in Tag Name and Tag Identifier',
         variant: 'destructive',
       });
       return;
     }
-    setStep(2);
-  };
 
-  const handleCreate = () => {
+    // Validate messages
     const hasEmptyMessages = messages.some(m => !m.content.trim());
     const hasTooLongMessages = messages.some(m => m.content.length > 160);
 
@@ -418,7 +492,11 @@ export default function TagTemplates() {
       return;
     }
 
-    createCampaignMutation.mutate();
+    if (editMode) {
+      updateCampaignMutation.mutate();
+    } else {
+      createCampaignMutation.mutate();
+    }
   };
 
   const handleTemplateSelect = (templateName: string) => {
@@ -563,15 +641,27 @@ export default function TagTemplates() {
                       <CardTitle className="text-base">{campaign.name}</CardTitle>
                       <Badge variant="secondary">{campaign.tag}</Badge>
                     </div>
-                    {isAdmin && campaign.user_id !== null && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteCampaignMutation.mutate(campaign.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(campaign)}
+                          className="hover:bg-muted"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {campaign.user_id !== null && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteCampaignMutation.mutate(campaign.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </CardHeader>
@@ -595,77 +685,64 @@ export default function TagTemplates() {
         )}
       </div>
 
-      {/* Create Campaign Modal */}
-      <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      {/* Create/Edit Campaign Modal */}
+      <Dialog open={createModalOpen} onOpenChange={(open) => {
+        setCreateModalOpen(open);
+        if (!open) resetForm();
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Create New Tag Template - Step {step} of 2
+              {editMode ? 'Edit Tag Template' : 'Create New Tag Template'}
             </DialogTitle>
           </DialogHeader>
 
-          {step === 1 ? (
-            <div className="space-y-4">
-              <div>
-                <Label>Load Template (Optional)</Label>
-                <Select onValueChange={handleTemplateSelect}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select a template..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CAMPAIGN_TEMPLATES.map((template) => (
-                      <SelectItem key={template.name} value={template.name}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Tag Name</Label>
-                <Input
-                  value={tagName}
-                  onChange={(e) => setTagName(e.target.value)}
-                  placeholder="e.g., Ghosted / No Response"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label>Tag Identifier</Label>
-                <Input
-                  value={tagIdentifier}
-                  onChange={(e) => setTagIdentifier(e.target.value)}
-                  placeholder="e.g., Ghosted"
-                  className="mt-1"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Used to identify this campaign in the system
-                </p>
-              </div>
-              <div>
-                <Label>Number of Messages</Label>
-                <RadioGroup value={messageCount} onValueChange={handleMessageCountChange} className="mt-2">
-                  {['2', '3', '4', '5', '6'].map((count) => (
-                    <div key={count} className="flex items-center space-x-2">
-                      <RadioGroupItem value={count} id={`count-${count}`} />
-                      <Label htmlFor={`count-${count}`}>{count} messages</Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setCreateModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleNext}>Next</Button>
-              </div>
+          <div className="space-y-4">
+            {/* Tag Name */}
+            <div>
+              <Label>Tag Name</Label>
+              <Input
+                value={tagName}
+                onChange={(e) => setTagName(e.target.value)}
+                placeholder="e.g., Ghosted / No Response"
+                className="mt-1"
+              />
             </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((message, index) => (
-                <div key={index} className="space-y-2">
-                  <Label>Message {index + 1}</Label>
-                  <div className="flex gap-2">
+
+            {/* Tag Identifier */}
+            <div>
+              <Label>Tag Identifier</Label>
+              <Input
+                value={tagIdentifier}
+                onChange={(e) => setTagIdentifier(e.target.value)}
+                placeholder="e.g., Ghosted"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Used to identify this campaign in the system
+              </p>
+            </div>
+
+            {/* Number of Messages */}
+            <div>
+              <Label>Number of Messages</Label>
+              <RadioGroup value={messageCount} onValueChange={handleMessageCountChange} className="mt-2 flex gap-4">
+                {['2', '3', '4', '5', '6'].map((count) => (
+                  <div key={count} className="flex items-center space-x-2">
+                    <RadioGroupItem value={count} id={`count-${count}`} />
+                    <Label htmlFor={`count-${count}`}>{count} messages</Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+
+            {/* Messages */}
+            {messages.map((message, index) => (
+              <div key={index} className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold">Message {index + 1}</Label>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Day:</Label>
                     <Input
                       type="number"
                       value={message.day}
@@ -676,61 +753,73 @@ export default function TagTemplates() {
                           )
                         )
                       }
-                      className="w-24"
+                      className="w-20"
                       min="1"
                     />
-                    <span className="self-center text-sm text-muted-foreground">Day</span>
-                  </div>
-                  <Textarea
-                    value={message.content}
-                    onChange={(e) =>
-                      setMessages(prev =>
-                        prev.map((m, i) =>
-                          i === index ? { ...m, content: e.target.value } : m
-                        )
-                      )
-                    }
-                    rows={3}
-                    placeholder="Enter message content..."
-                  />
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => insertPlaceholder(index, '{first_name}')}
-                      >
-                        {'{first_name}'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => insertPlaceholder(index, '{last_name}')}
-                      >
-                        {'{last_name}'}
-                      </Button>
-                    </div>
-                    <p
-                      className={`text-xs ${message.content.length > 144 ? 'text-warning' : 'text-muted-foreground'
-                        }`}
-                    >
-                      {message.content.length}/160
-                    </p>
                   </div>
                 </div>
-              ))}
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setStep(1)}>
-                  Back
-                </Button>
-                <Button onClick={handleCreate} disabled={createCampaignMutation.isPending}>
-                  {createCampaignMutation.isPending ? 'Creating...' : 'Create Campaign'}
-                </Button>
+
+                <Textarea
+                  value={message.content}
+                  onChange={(e) =>
+                    setMessages(prev =>
+                      prev.map((m, i) =>
+                        i === index ? { ...m, content: e.target.value } : m
+                      )
+                    )
+                  }
+                  rows={3}
+                  placeholder="Enter message content..."
+                />
+
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => insertPlaceholder(index, '{first_name}')}
+                    >
+                      {'{first_name}'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => insertPlaceholder(index, '{last_name}')}
+                    >
+                      {'{last_name}'}
+                    </Button>
+                  </div>
+                  <p
+                    className={`text-xs ${message.content.length > 144
+                      ? 'text-orange-600 font-semibold'
+                      : message.content.length > 120
+                        ? 'text-yellow-600'
+                        : 'text-muted-foreground'
+                      }`}
+                  >
+                    {message.content.length}/160
+                  </p>
+                </div>
               </div>
+            ))}
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setCreateModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                disabled={createCampaignMutation.isPending || updateCampaignMutation.isPending}
+              >
+                {createCampaignMutation.isPending || updateCampaignMutation.isPending
+                  ? (editMode ? 'Updating...' : 'Creating...')
+                  : (editMode ? 'Update Campaign' : 'Create Campaign')}
+              </Button>
             </div>
-          )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -837,10 +926,10 @@ export default function TagTemplates() {
                   </div>
                   <p
                     className={`text-xs ${message.content.length > 144
-                        ? 'text-orange-600 font-semibold'
-                        : message.content.length > 120
-                          ? 'text-yellow-600'
-                          : 'text-muted-foreground'
+                      ? 'text-orange-600 font-semibold'
+                      : message.content.length > 120
+                        ? 'text-yellow-600'
+                        : 'text-muted-foreground'
                       }`}
                   >
                     {message.content.length}/160
