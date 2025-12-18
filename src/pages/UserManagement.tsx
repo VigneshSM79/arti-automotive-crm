@@ -43,6 +43,7 @@ interface User {
   designation: string | null;
   receive_sms_notifications: boolean;
   is_active: boolean;
+  user_roles?: { role: 'admin' | 'user' } | null;
 }
 
 interface UserFormData {
@@ -81,27 +82,24 @@ export default function UserManagement() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<{ id: string; name: string } | null>(null);
 
-  // Fetch all users
+  // Fetch all users with their roles (optimized single query)
   const { data: users, isLoading } = useQuery({
     queryKey: ['all-users'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('id, full_name, email, phone_number, twilio_phone_number, designation, receive_sms_notifications, is_active')
+        .select(`
+          id,
+          full_name,
+          email,
+          phone_number,
+          twilio_phone_number,
+          designation,
+          receive_sms_notifications,
+          is_active,
+          user_roles!user_roles_user_id_fkey (role)
+        `)
         .order('full_name');
-
-      if (error) throw error;
-      return data as User[];
-    },
-  });
-
-  // Fetch user roles
-  const { data: userRoles } = useQuery({
-    queryKey: ['user-roles'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('user_id, role');
 
       if (error) throw error;
       return data;
@@ -109,9 +107,11 @@ export default function UserManagement() {
   });
 
   // Get role for a specific user
+  // With UNIQUE constraint, each user has exactly 0 or 1 role
+  // Supabase returns single role as object (not array) for one-to-one relationships
   const getUserRole = (userId: string): 'admin' | 'user' => {
-    const roleRecord = userRoles?.find((r) => r.user_id === userId);
-    return roleRecord?.role === 'admin' ? 'admin' : 'user';
+    const user = users?.find((u) => u.id === userId);
+    return user?.user_roles?.role === 'admin' ? 'admin' : 'user';
   };
 
   // Create user mutation
@@ -122,12 +122,12 @@ export default function UserManagement() {
 
       const response = await supabase.functions.invoke('create-user', {
         body: {
-          email: data.email,
+          email: data.email.trim(),
           password: data.password,
-          full_name: data.full_name,
-          phone_number: data.phone_number || null,
-          twilio_phone_number: data.twilio_phone_number || null,
-          designation: data.designation || null,
+          full_name: data.full_name.trim(),
+          phone_number: data.phone_number?.trim() || null,
+          twilio_phone_number: data.twilio_phone_number?.trim() || null,
+          designation: data.designation?.trim() || null,
           role: data.role,
           receive_sms_notifications: data.receive_sms_notifications,
           is_active: data.is_active,
@@ -146,7 +146,6 @@ export default function UserManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-users'] });
-      queryClient.invalidateQueries({ queryKey: ['user-roles'] });
       setDialogOpen(false);
       setFormData(initialFormData);
       toast({
@@ -170,10 +169,10 @@ export default function UserManagement() {
       const { error: updateError } = await supabase
         .from('users')
         .update({
-          full_name: data.full_name,
-          phone_number: data.phone_number || null,
-          twilio_phone_number: data.twilio_phone_number || null,
-          designation: data.designation || null,
+          full_name: data.full_name?.trim(),
+          phone_number: data.phone_number?.trim() || null,
+          twilio_phone_number: data.twilio_phone_number?.trim() || null,
+          designation: data.designation?.trim() || null,
           receive_sms_notifications: data.receive_sms_notifications,
           is_active: data.is_active,
         })
@@ -181,30 +180,27 @@ export default function UserManagement() {
 
       if (updateError) throw updateError;
 
-      // 2. Update role if changed
+      // 2. Update role if changed (UPSERT - atomic operation)
       if (data.role) {
-        // First delete existing roles to ensure single-role policy and avoid conflicts
-        const { error: deleteError } = await supabase
-          .from('user_roles')
-          .delete()
-          .eq('user_id', userId);
-
-        if (deleteError) throw deleteError;
-
-        // Then insert the new role
+        // UPSERT: Update if exists, insert if not
+        // UNIQUE constraint on user_id ensures only one role per user
         const { error: roleError } = await supabase
           .from('user_roles')
-          .insert({
-            user_id: userId,
-            role: data.role,
-          });
+          .upsert(
+            {
+              user_id: userId,
+              role: data.role,
+            },
+            {
+              onConflict: 'user_id', // Uses UNIQUE constraint
+            }
+          );
 
         if (roleError) throw roleError;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-users'] });
-      queryClient.invalidateQueries({ queryKey: ['user-roles'] });
       setDialogOpen(false);
       setFormData(initialFormData);
       toast({
@@ -241,7 +237,6 @@ export default function UserManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-users'] });
-      queryClient.invalidateQueries({ queryKey: ['user-roles'] });
       setIsDeleteDialogOpen(false);
       setUserToDelete(null);
       toast({
@@ -336,11 +331,14 @@ export default function UserManagement() {
   };
 
   const getInitials = (name: string): string => {
-    const parts = name.split(' ');
+    const parts = name.trim().split(' ').filter(p => p.length > 0);
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
-    return name.substring(0, 2).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+    return (parts[0]?.[0] || '?').toUpperCase();
   };
 
   return (
