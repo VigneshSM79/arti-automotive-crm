@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { MetricCard } from '@/components/shared/MetricCard';
-import { MessageSquare, MessageCircle, TrendingUp, Tag, CalendarIcon } from 'lucide-react';
+import { MessageSquare, MessageCircle, TrendingUp, Tag, CalendarIcon, CheckCheck, XCircle, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
@@ -185,6 +185,59 @@ export default function Analytics() {
     },
   });
 
+  // SMS Delivery Metrics
+  const { data: deliveryMetrics, isLoading: loadingDeliveryMetrics } = useQuery({
+    queryKey: ['analytics', 'delivery-metrics', dateRange, customDateRange.from, customDateRange.to],
+    queryFn: async () => {
+      const { start, end } = getDateRange();
+
+      const { data: messages, error } = await supabase
+        .from('messages')
+        .select('delivery_status, error_code, error_message, direction')
+        .eq('direction', 'outbound') // Only outbound messages have delivery tracking
+        .gte('created_at', start)
+        .lte('created_at', end);
+
+      if (error) throw error;
+
+      const total = messages?.length || 0;
+      const delivered = messages?.filter(m => m.delivery_status === 'delivered').length || 0;
+      const failed = messages?.filter(m => m.delivery_status === 'failed' || m.delivery_status === 'undelivered').length || 0;
+      const pending = messages?.filter(m => m.delivery_status === 'queued' || m.delivery_status === 'sent').length || 0;
+
+      const deliveryRate = total > 0 ? ((delivered / total) * 100).toFixed(1) : '0';
+
+      // Group failures by error code
+      const failuresByCode = messages
+        ?.filter(m => m.delivery_status === 'failed' || m.delivery_status === 'undelivered')
+        .reduce((acc: any, msg: any) => {
+          const code = msg.error_code || 'Unknown';
+          const errorMsg = msg.error_message || 'Unknown error';
+
+          if (!acc[code]) {
+            acc[code] = {
+              code,
+              message: errorMsg,
+              count: 0
+            };
+          }
+          acc[code].count++;
+          return acc;
+        }, {});
+
+      const failureBreakdown = Object.values(failuresByCode || {}).sort((a: any, b: any) => b.count - a.count);
+
+      return {
+        total,
+        delivered,
+        failed,
+        pending,
+        deliveryRate,
+        failureBreakdown
+      };
+    },
+  });
+
   return (
     <div className="space-y-6 animate-in">
       <div className="flex items-center justify-between">
@@ -247,7 +300,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Metrics */}
+      {/* Messaging Metrics */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total Sent"
@@ -276,6 +329,45 @@ export default function Analytics() {
           icon={Tag}
           variant="destructive"
         />
+      </div>
+
+      {/* SMS Delivery Metrics */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">SMS Delivery Tracking</h2>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            title="Delivered"
+            value={deliveryMetrics?.delivered || 0}
+            icon={CheckCheck}
+            variant="secondary"
+            loading={loadingDeliveryMetrics}
+            description={`${deliveryMetrics?.deliveryRate || 0}% delivery rate`}
+          />
+          <MetricCard
+            title="Failed"
+            value={deliveryMetrics?.failed || 0}
+            icon={XCircle}
+            variant="destructive"
+            loading={loadingDeliveryMetrics}
+            description={deliveryMetrics?.failed ? `${deliveryMetrics.failed} undeliverable` : 'No failures'}
+          />
+          <MetricCard
+            title="Pending"
+            value={deliveryMetrics?.pending || 0}
+            icon={AlertTriangle}
+            variant="warning"
+            loading={loadingDeliveryMetrics}
+            description="Queued or in transit"
+          />
+          <MetricCard
+            title="Delivery Rate"
+            value={`${deliveryMetrics?.deliveryRate || 0}%`}
+            icon={TrendingUp}
+            variant="primary"
+            loading={loadingDeliveryMetrics}
+            description={`${deliveryMetrics?.delivered || 0} of ${deliveryMetrics?.total || 0} delivered`}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -379,6 +471,83 @@ export default function Analytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delivery Failure Analysis */}
+      {deliveryMetrics?.failed > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Delivery Failure Breakdown</CardTitle>
+            <p className="text-sm text-muted-foreground">Common reasons why messages failed to deliver</p>
+          </CardHeader>
+          <CardContent>
+            {deliveryMetrics.failureBreakdown && deliveryMetrics.failureBreakdown.length > 0 ? (
+              <div className="space-y-4">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart
+                    data={deliveryMetrics.failureBreakdown}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="code" fontSize={12} />
+                    <YAxis fontSize={12} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-white p-3 border rounded shadow-lg max-w-xs">
+                              <p className="font-semibold text-red-600">Error {data.code}</p>
+                              <p className="text-sm mt-1">{data.message}</p>
+                              <p className="text-sm mt-2">Count: <strong>{data.count}</strong></p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="count" fill="#EF4444" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+
+                {/* Failure Details Table */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-3 font-semibold">Error Code</th>
+                        <th className="text-left p-3 font-semibold">Description</th>
+                        <th className="text-right p-3 font-semibold">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deliveryMetrics.failureBreakdown.map((failure: any, index: number) => (
+                        <tr key={index} className="border-t hover:bg-muted/50 transition-colors">
+                          <td className="p-3 font-mono text-red-600">{failure.code}</td>
+                          <td className="p-3 text-muted-foreground">{failure.message}</td>
+                          <td className="p-3 text-right font-semibold">{failure.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Common Error Codes Reference */}
+                <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">Common Twilio Error Codes:</p>
+                  <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                    <li><strong>30006:</strong> Landline or unreachable carrier</li>
+                    <li><strong>30007:</strong> Message filtered (spam)</li>
+                    <li><strong>30008:</strong> Unknown destination handset</li>
+                    <li><strong>21211:</strong> Invalid phone number format</li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground py-8">No delivery failures to analyze</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

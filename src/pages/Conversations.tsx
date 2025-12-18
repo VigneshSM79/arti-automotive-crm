@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Send, Bot, AlertCircle, MessageSquare, User, Loader2, Phone } from 'lucide-react';
+import { Search, Send, Bot, AlertCircle, MessageSquare, User, Loader2, Phone, Check, CheckCheck, Clock, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
@@ -21,6 +21,85 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+
+// Helper function to render delivery status icon for outbound messages
+const DeliveryStatusIcon = ({ message }: { message: any }) => {
+  if (message.direction !== 'outbound') return null;
+
+  const status = message.delivery_status;
+  const errorCode = message.error_code;
+  const errorMessage = message.error_message;
+
+  // No status yet (old messages before this feature)
+  if (!status) return null;
+
+  // Failed or undelivered
+  if (status === 'failed' || status === 'undelivered') {
+    const tooltipText = errorMessage || errorCode || 'Delivery failed';
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <X className="h-3 w-3 text-red-500 cursor-help" />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <p className="font-semibold text-red-500">Failed to deliver</p>
+          {errorCode && <p className="text-xs text-muted-foreground">Error {errorCode}</p>}
+          {errorMessage && <p className="text-xs mt-1">{errorMessage}</p>}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // Delivered (double check, green)
+  if (status === 'delivered') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <CheckCheck className="h-3 w-3 text-green-500" />
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">Delivered</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // Sent (single check, gray)
+  if (status === 'sent') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Check className="h-3 w-3 text-gray-400" />
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">Sent to carrier</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // Queued (clock, gray)
+  if (status === 'queued') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Clock className="h-3 w-3 text-gray-400" />
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">Sending...</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return null;
+};
 
 export default function Conversations() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -340,6 +419,13 @@ export default function Conversations() {
     queryKey: ['messages', selectedConversationId], // This will also trigger for other conversations if we invalidate 'conversations'
   });
 
+  // 2. Message updates (for delivery status changes from Twilio callbacks)
+  useRealtimeSubscription({
+    table: 'messages',
+    event: 'UPDATE',
+    queryKey: ['messages', selectedConversationId],
+  });
+
   // 2. Conversation updates (status, handoff, unread counts) AND new conversations
   useRealtimeSubscription({
     table: 'conversations',
@@ -603,15 +689,19 @@ export default function Conversations() {
                     timeline.map((item: any) => {
                       if (item.type === 'message') {
                         const isOutbound = item.direction === 'outbound';
+                        const isFailed = item.delivery_status === 'failed' || item.delivery_status === 'undelivered';
                         return (
                           <div key={`msg-${item.id}`} className={`flex flex-col ${isOutbound ? 'items-end' : 'items-start'} group`}>
-                            <div className={`max-w-[75%] px-5 py-3 shadow-sm relative text-sm leading-relaxed ${isOutbound ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-white dark:bg-zinc-800 text-foreground border border-border/50 rounded-2xl rounded-tl-sm'}`}>
+                            <div className={`max-w-[75%] px-5 py-3 shadow-sm relative text-sm leading-relaxed ${isOutbound ? `${isFailed ? 'bg-red-500/10 border border-red-500/30 text-foreground' : 'bg-primary text-primary-foreground'} rounded-2xl rounded-tr-sm` : 'bg-white dark:bg-zinc-800 text-foreground border border-border/50 rounded-2xl rounded-tl-sm'}`}>
                               {item.content}
                             </div>
                             <div className="flex items-center gap-2 mt-1 px-1">
                               <span className="text-[10px] text-muted-foreground/70">
                                 {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
                               </span>
+                              <TooltipProvider>
+                                <DeliveryStatusIcon message={item} />
+                              </TooltipProvider>
                               {item.is_ai_generated && (
                                 <Badge variant="outline" className="text-[10px] h-4 px-1 py-0 border-primary/20 text-primary">
                                   <Bot className="h-3 w-3" />
