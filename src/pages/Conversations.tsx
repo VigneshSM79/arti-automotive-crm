@@ -196,7 +196,18 @@ export default function Conversations() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { error } = await supabase
+      // Step 1: Get the conversation to find the lead_id
+      const { data: conversation, error: fetchError } = await supabase
+        .from('conversations')
+        .select('lead_id')
+        .eq('id', conversationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!conversation) throw new Error('Conversation not found');
+
+      // Step 2: Update conversation (disable AI)
+      const { error: convError } = await supabase
         .from('conversations')
         .update({
           ai_controlled: false,
@@ -205,13 +216,26 @@ export default function Conversations() {
         })
         .eq('id', conversationId);
 
-      if (error) throw error;
+      if (convError) throw convError;
+
+      // Step 3: Claim the lead (set owner_id = user.id)
+      const { error: leadError } = await supabase
+        .from('leads')
+        .update({
+          owner_id: user.id,
+          claimed_at: new Date().toISOString()
+        })
+        .eq('id', conversation.lead_id);
+
+      if (leadError) throw leadError;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    onSuccess: async () => {
+      // Force immediate refetch of both conversations and leads
+      await queryClient.refetchQueries({ queryKey: ['conversations'], type: 'active' });
+      await queryClient.refetchQueries({ queryKey: ['leads'], type: 'active' });
       toast({
-        title: 'AI disabled',
-        description: 'You now have manual control of this conversation'
+        title: 'Lead claimed & AI disabled',
+        description: 'You now have full control of this conversation and lead'
       });
     },
     onError: (error: any) => {
@@ -625,8 +649,8 @@ export default function Conversations() {
                     </div>
                   )}
 
-                  {/* Take Over Button (Admin Only) */}
-                  {userRole?.isAdmin && selectedConversation.ai_controlled && (
+                  {/* Take Over Button */}
+                  {selectedConversation.ai_controlled && (
                     <Button
                       onClick={() => takeoverMutation.mutate(selectedConversationId!)}
                       disabled={takeoverMutation.isPending}
@@ -742,11 +766,9 @@ export default function Conversations() {
               {/* Input Area */}
               <div className="p-4 bg-black/5 border-t border-white/5 backdrop-blur-sm">
                 {(() => {
-                  const canSendManualMessage = userRole?.isAdmin && !selectedConversation.ai_controlled;
+                  const canSendManualMessage = !selectedConversation.ai_controlled;
                   const placeholderText = selectedConversation.ai_controlled
                     ? "AI is handling this conversation. Click 'Take Over from AI' to send manual messages."
-                    : !userRole?.isAdmin
-                    ? "Only admins can send manual messages"
                     : "Type your message...";
 
                   return (
